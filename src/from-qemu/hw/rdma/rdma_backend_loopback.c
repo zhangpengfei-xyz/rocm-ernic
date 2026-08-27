@@ -1050,7 +1050,40 @@ static int loopback_create_qp(RdmaBackendQP *qp, uint8_t qp_type,
 static void loopback_destroy_qp(RdmaBackendQP *qp, RdmaDeviceResources *dev_res)
 {
     LoopbackQP *lqp = (LoopbackQP *)qp->ibqp;
-    uint32_t qpn = lqp ? lqp->qpn : 0;
+    LoopbackBackendPrivate *priv;
+    LoopbackQP *peer;
+    LoopbackWR *wr;
+    uint32_t qpn;
+
+    if (!lqp)
+        return;
+
+    qpn = lqp->qpn;
+    priv = get_private(lqp->backend_dev);
+
+    while ((wr = g_queue_pop_head(lqp->send_queue)) != NULL)
+        g_free(wr);
+    while ((wr = g_queue_pop_head(lqp->recv_queue)) != NULL) {
+        if (wr->wr_id)
+            g_free((gpointer)(uintptr_t)wr->wr_id);
+        g_free(wr);
+    }
+    g_queue_free(lqp->send_queue);
+    g_queue_free(lqp->recv_queue);
+    qemu_mutex_destroy(&lqp->lock);
+
+    qemu_mutex_lock(&priv->lock);
+    peer = g_hash_table_lookup(priv->qps,
+                               GUINT_TO_POINTER(lqp->remote_qpn));
+    if (peer && peer != lqp && peer->remote_qpn == qpn) {
+        peer->remote_qpn = 0;
+        peer->remote_addr = 0;
+        peer->remote_rkey = 0;
+    }
+    g_hash_table_remove(priv->qps, GUINT_TO_POINTER(qpn));
+    qemu_mutex_unlock(&priv->lock);
+    qp->ibqp = NULL;
+
     rdma_info_report("Loopback: Destroyed QP %u", qpn);
 }
 
