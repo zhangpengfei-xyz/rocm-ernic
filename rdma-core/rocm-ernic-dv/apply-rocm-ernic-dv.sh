@@ -44,8 +44,11 @@ cp -v "${PROVIDER_SRC}/CMakeLists.txt" "${DEST}/"
 cp -v "${PROVIDER_SRC}/main.c"         "${DEST}/"
 cp -v "${PROVIDER_SRC}/verbs.c"        "${DEST}/"
 cp -v "${PROVIDER_SRC}/dv.c"           "${DEST}/"
+cp -v "${PROVIDER_SRC}/dc.c"           "${DEST}/"
 cp -v "${PROVIDER_SRC}/rocm_ernic.h"   "${DEST}/"
 cp -v "${PROVIDER_SRC}/rocm_ernic_dv.h" \
+    "${DEST}/"
+cp -v "${PROVIDER_SRC}/rocm_ernic_dc.h" \
     "${DEST}/"
 cp -v "${PROVIDER_SRC}/rocm_ernic_driver_id.h" \
     "${DEST}/"

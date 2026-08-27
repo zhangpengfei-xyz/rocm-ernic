@@ -16,6 +16,7 @@
 #include "rdma_backend.h"
 #include "rdma_rm.h"
 #include "rdma_utils.h"
+#include "hw/pci/pci.h"
 #include "standard-headers/rdma/vmw_pvrdma-abi.h"
 #include "vmw/pvrdma.h"
 #include "../../utils/dhcp_server.h"

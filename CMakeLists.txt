@@ -197,9 +197,14 @@ add_executable(rocm-ernic ${ALL_SOURCES})
 target_include_directories(rocm-ernic PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/from-qemu/include/qemu-extra
-    ${VFIO_USER_INCLUDE_DIRS}
     ${GLIB2_INCLUDE_DIRS}
     ${IBVERBS_INCLUDE_DIRS}
+)
+
+# libvfio-user is an external dependency.  Treat its headers as system
+# headers so newer compiler diagnostics do not get promoted by ERNIC_WERROR.
+target_include_directories(rocm-ernic SYSTEM PRIVATE
+    ${VFIO_USER_INCLUDE_DIRS}
 )
 
 target_compile_definitions(rocm-ernic PRIVATE

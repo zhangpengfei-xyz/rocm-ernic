@@ -391,6 +391,10 @@ struct ib_mr *rocm_ernic_reg_user_mr_dmabuf(struct ib_pd *pd, u64 offset,
                                             int access_flags,
                                             struct ib_dmah *dmah,
                                             struct uverbs_attr_bundle *attrs);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+struct ib_mr *rocm_ernic_reg_user_mr_dmabuf(
+    struct ib_pd *pd, u64 offset, u64 length, u64 virt_addr, int fd,
+    int access_flags, struct uverbs_attr_bundle *attrs);
 #else
 struct ib_mr *rocm_ernic_reg_user_mr_dmabuf(struct ib_pd *pd, u64 offset,
                                             u64 length, u64 virt_addr, int fd,

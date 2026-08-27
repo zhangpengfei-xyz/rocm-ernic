@@ -47,6 +47,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/bitmap.h>
+#include <rdma/iter.h>
 
 #include "rocm_ernic.h"
 
