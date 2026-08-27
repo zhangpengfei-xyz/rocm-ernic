@@ -22,11 +22,104 @@
 
 /* Test pattern types to verify */
 typedef enum {
-    PATTERN_CUSTOM,    /* Use our own test pattern */
+    PATTERN_PRESERVE,  /* Preserve the source buffer */
     PATTERN_ZEROS,     /* Verify zeros pattern */
     PATTERN_ONES,      /* Verify ones pattern */
     PATTERN_INCREMENT, /* Verify incrementing pattern */
+    PATTERN_DECREMENT, /* Verify decrementing pattern */
+    PATTERN_ALTERNATE, /* Verify alternating 0xaa/0x55 pattern */
+    PATTERN_RANDOM,    /* Verify generated data replaces source data */
 } test_pattern_t;
+
+static test_pattern_t test_pattern = PATTERN_PRESERVE;
+static const char *test_pattern_name = "preserve";
+
+static int select_test_pattern(void)
+{
+    const char *mode = getenv("ERNIC_LOOPBACK_MODE");
+
+    if (!mode || !*mode || !strcmp(mode, "preserve")) {
+        test_pattern = PATTERN_PRESERVE;
+        test_pattern_name = "preserve";
+    } else if (!strcmp(mode, "zeros")) {
+        test_pattern = PATTERN_ZEROS;
+        test_pattern_name = "zeros";
+    } else if (!strcmp(mode, "ones")) {
+        test_pattern = PATTERN_ONES;
+        test_pattern_name = "ones";
+    } else if (!strcmp(mode, "increment")) {
+        test_pattern = PATTERN_INCREMENT;
+        test_pattern_name = "increment";
+    } else if (!strcmp(mode, "decrement")) {
+        test_pattern = PATTERN_DECREMENT;
+        test_pattern_name = "decrement";
+    } else if (!strcmp(mode, "alternate")) {
+        test_pattern = PATTERN_ALTERNATE;
+        test_pattern_name = "alternate";
+    } else if (!strcmp(mode, "random")) {
+        test_pattern = PATTERN_RANDOM;
+        test_pattern_name = "random";
+    } else {
+        fprintf(stderr, "Unsupported ERNIC_LOOPBACK_MODE: %s\n", mode);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int verify_transfer(const void *source, const void *destination,
+                           size_t length, const char *operation)
+{
+    const unsigned char *src = source;
+    const unsigned char *dst = destination;
+
+    if (test_pattern == PATTERN_PRESERVE) {
+        if (!memcmp(src, dst, length))
+            return 0;
+    } else if (test_pattern == PATTERN_RANDOM) {
+        /* A whole buffer matching the deterministic source is negligible. */
+        if (memcmp(src, dst, length))
+            return 0;
+    } else {
+        for (size_t i = 0; i < length; i++) {
+            unsigned char expected;
+
+            switch (test_pattern) {
+            case PATTERN_ZEROS:
+                expected = 0x00;
+                break;
+            case PATTERN_ONES:
+                expected = 0xff;
+                break;
+            case PATTERN_INCREMENT:
+                expected = (unsigned char)(i & 0xff);
+                break;
+            case PATTERN_DECREMENT:
+                expected = (unsigned char)((0xff - i) & 0xff);
+                break;
+            case PATTERN_ALTERNATE:
+                expected = (i % 2) ? 0x55 : 0xaa;
+                break;
+            default:
+                expected = 0;
+                break;
+            }
+
+            if (dst[i] != expected) {
+                fprintf(stderr,
+                        "%s pattern mismatch at byte %zu: got 0x%02x, "
+                        "expected 0x%02x\n",
+                        operation, i, dst[i], expected);
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    fprintf(stderr, "%s data mismatch for mode=%s\n", operation,
+            test_pattern_name);
+    return -1;
+}
 
 /* Global test resources */
 struct test_context {
@@ -120,7 +213,7 @@ static int setup_resources(struct test_context *ctx)
         fprintf(stderr, "Failed to allocate buffers\n");
         return -1;
     }
-    memset(ctx->recv_buf, 0, BUFFER_SIZE);
+    memset(ctx->recv_buf, 0xcc, BUFFER_SIZE);
     printf("✓ Allocated buffers (%d bytes each)\n", BUFFER_SIZE);
 
     /* Register memory regions */
@@ -346,8 +439,8 @@ static int test_basic_send_recv(struct test_context *ctx)
     }
 
     printf("\n✓ Both operations completed!\n");
-    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
-        fprintf(stderr, "SEND/RECV data mismatch\n");
+    if (verify_transfer(ctx->send_buf, ctx->recv_buf, test_size,
+                        "SEND/RECV")) {
         return -1;
     }
     printf("✓ SEND/RECV data verified\n");
@@ -371,7 +464,7 @@ static int test_multiple_transfers(struct test_context *ctx)
     for (int i = 0; i < num_ops; i++) {
         /* Prepare buffers */
         memset(ctx->send_buf, 0x10 + i, test_size);
-        memset(ctx->recv_buf, 0, test_size);
+        memset(ctx->recv_buf, 0xcc, test_size);
 
         /* Post receive */
         recv_sge.addr = (uintptr_t)ctx->recv_buf;
@@ -415,8 +508,9 @@ static int test_multiple_transfers(struct test_context *ctx)
             fprintf(stderr, "Failed to complete transfer %d\n", i);
             return -1;
         }
-        if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
-            fprintf(stderr, "Data mismatch for transfer %d\n", i);
+        if (verify_transfer(ctx->send_buf, ctx->recv_buf, test_size,
+                            "sequential SEND/RECV")) {
+            fprintf(stderr, "Transfer %d verification failed\n", i);
             return -1;
         }
     }
@@ -440,7 +534,7 @@ static int test_varying_sizes(struct test_context *ctx)
 
         printf("Testing %zu bytes...\n", size);
         memset(ctx->send_buf, 0x40 + i, size);
-        memset(ctx->recv_buf, 0, size);
+        memset(ctx->recv_buf, 0xcc, size);
 
         /* Post receive */
         recv_sge.addr = (uintptr_t)ctx->recv_buf;
@@ -482,8 +576,9 @@ static int test_varying_sizes(struct test_context *ctx)
             fprintf(stderr, "Failed at size %zu\n", size);
             return -1;
         }
-        if (memcmp(ctx->send_buf, ctx->recv_buf, size) != 0) {
-            fprintf(stderr, "Data mismatch at size %zu\n", size);
+        if (verify_transfer(ctx->send_buf, ctx->recv_buf, size,
+                            "variable-size SEND/RECV")) {
+            fprintf(stderr, "Data verification failed at size %zu\n", size);
             return -1;
         }
 
@@ -504,7 +599,7 @@ static int test_rdma_read_write(struct test_context *ctx)
     print_header("Test 4: RDMA Write/Read");
 
     memset(ctx->send_buf, 0x5a, test_size);
-    memset(ctx->recv_buf, 0, test_size);
+    memset(ctx->recv_buf, 0xcc, test_size);
 
     sge.addr = (uintptr_t)ctx->send_buf;
     sge.length = test_size;
@@ -526,13 +621,13 @@ static int test_rdma_read_write(struct test_context *ctx)
     prev_sends = ctx->completed_sends;
     if (poll_completions(ctx, prev_sends + 1, ctx->completed_recvs) < 0)
         return -1;
-    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
-        fprintf(stderr, "RDMA WRITE data mismatch\n");
+    if (verify_transfer(ctx->send_buf, ctx->recv_buf, test_size,
+                        "RDMA WRITE")) {
         return -1;
     }
     printf("✓ RDMA WRITE transferred and verified %zu bytes\n", test_size);
 
-    memset(ctx->send_buf, 0, test_size);
+    memset(ctx->send_buf, 0xcc, test_size);
     memset(ctx->recv_buf, 0xa5, test_size);
     wr.wr_id = 301;
     wr.opcode = IBV_WR_RDMA_READ;
@@ -544,8 +639,8 @@ static int test_rdma_read_write(struct test_context *ctx)
     prev_sends = ctx->completed_sends;
     if (poll_completions(ctx, prev_sends + 1, ctx->completed_recvs) < 0)
         return -1;
-    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
-        fprintf(stderr, "RDMA READ data mismatch\n");
+    if (verify_transfer(ctx->recv_buf, ctx->send_buf, test_size,
+                        "RDMA READ")) {
         return -1;
     }
     printf("✓ RDMA READ transferred and verified %zu bytes\n", test_size);
@@ -578,6 +673,9 @@ int main(void)
     struct test_context ctx = {0};
     int ret = 0;
 
+    if (select_test_pattern())
+        return 2;
+
     printf(
         "\n╔════════════════════════════════════════════════════════════╗\n");
     printf("║                                                            ║\n");
@@ -585,6 +683,7 @@ int main(void)
     printf("║      Tests actual send/recv with loopback backend         ║\n");
     printf("║                                                            ║\n");
     printf("╚════════════════════════════════════════════════════════════╝\n");
+    printf("Expected loopback data mode: %s\n", test_pattern_name);
 
     /* Setup */
     int setup_ret = setup_resources(&ctx);
