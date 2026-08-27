@@ -331,9 +331,13 @@ void rdma_rm_dealloc_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle)
             mr->backend_mr.backend_ops->destroy_mr) {
             mr->backend_mr.backend_ops->destroy_mr(&mr->backend_mr);
         }
-        if (mr->start) {
+        if (mr->virt) {
+            size_t map_length =
+                ((mr->start & (PAGE_SIZE - 1)) + mr->length + PAGE_SIZE - 1) &
+                ~(size_t)(PAGE_SIZE - 1);
+
             mr->virt -= (mr->start & (PAGE_SIZE - 1));
-            munmap(mr->virt, mr->length);
+            munmap(mr->virt, map_length);
         }
         rdma_res_tbl_dealloc(&dev_res->mr_tbl, mr_handle);
         rdma_info_report("rdma_rm_dealloc_mr: Deallocated MR handle %u",
