@@ -126,8 +126,10 @@ static int setup_resources(struct test_context *ctx)
     /* Register memory regions */
     ctx->send_mr =
         ibv_reg_mr(ctx->pd, ctx->send_buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
-    ctx->recv_mr =
-        ibv_reg_mr(ctx->pd, ctx->recv_buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
+    ctx->recv_mr = ibv_reg_mr(ctx->pd, ctx->recv_buf, BUFFER_SIZE,
+                              IBV_ACCESS_LOCAL_WRITE |
+                                  IBV_ACCESS_REMOTE_WRITE |
+                                  IBV_ACCESS_REMOTE_READ);
     if (!ctx->send_mr || !ctx->recv_mr) {
         fprintf(stderr, "Failed to register MRs: %s\n", strerror(errno));
         return -1;
@@ -344,13 +346,11 @@ static int test_basic_send_recv(struct test_context *ctx)
     }
 
     printf("\n✓ Both operations completed!\n");
-
-    /* Note: With loopback backend in "preserve" mode, data isn't actually
-     * copied */
-    /* The loopback backend only simulates the operation */
-    printf("\nNote: Loopback backend simulates data transfer\n");
-    printf("      Actual data verification depends on backend pattern "
-           "configuration\n");
+    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
+        fprintf(stderr, "SEND/RECV data mismatch\n");
+        return -1;
+    }
+    printf("✓ SEND/RECV data verified\n");
 
     return 0;
 }
@@ -415,6 +415,10 @@ static int test_multiple_transfers(struct test_context *ctx)
             fprintf(stderr, "Failed to complete transfer %d\n", i);
             return -1;
         }
+        if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
+            fprintf(stderr, "Data mismatch for transfer %d\n", i);
+            return -1;
+        }
     }
 
     printf("\n✓ All %d transfers completed successfully!\n", num_ops);
@@ -435,6 +439,8 @@ static int test_varying_sizes(struct test_context *ctx)
         size_t size = sizes[i];
 
         printf("Testing %zu bytes...\n", size);
+        memset(ctx->send_buf, 0x40 + i, size);
+        memset(ctx->recv_buf, 0, size);
 
         /* Post receive */
         recv_sge.addr = (uintptr_t)ctx->recv_buf;
@@ -476,11 +482,74 @@ static int test_varying_sizes(struct test_context *ctx)
             fprintf(stderr, "Failed at size %zu\n", size);
             return -1;
         }
+        if (memcmp(ctx->send_buf, ctx->recv_buf, size) != 0) {
+            fprintf(stderr, "Data mismatch at size %zu\n", size);
+            return -1;
+        }
 
         printf("  ✓ %zu bytes completed\n", size);
     }
 
     printf("\n✓ All size variations completed!\n");
+    return 0;
+}
+
+static int test_rdma_read_write(struct test_context *ctx)
+{
+    struct ibv_sge sge;
+    struct ibv_send_wr wr, *bad_wr;
+    const size_t test_size = 1024;
+    int prev_sends;
+
+    print_header("Test 4: RDMA Write/Read");
+
+    memset(ctx->send_buf, 0x5a, test_size);
+    memset(ctx->recv_buf, 0, test_size);
+
+    sge.addr = (uintptr_t)ctx->send_buf;
+    sge.length = test_size;
+    sge.lkey = ctx->send_mr->lkey;
+
+    memset(&wr, 0, sizeof(wr));
+    wr.wr_id = 300;
+    wr.sg_list = &sge;
+    wr.num_sge = 1;
+    wr.opcode = IBV_WR_RDMA_WRITE;
+    wr.send_flags = IBV_SEND_SIGNALED;
+    wr.wr.rdma.remote_addr = (uintptr_t)ctx->recv_buf;
+    wr.wr.rdma.rkey = ctx->recv_mr->rkey;
+
+    if (ibv_post_send(ctx->qp, &wr, &bad_wr)) {
+        fprintf(stderr, "Failed to post RDMA WRITE: %s\n", strerror(errno));
+        return -1;
+    }
+    prev_sends = ctx->completed_sends;
+    if (poll_completions(ctx, prev_sends + 1, ctx->completed_recvs) < 0)
+        return -1;
+    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
+        fprintf(stderr, "RDMA WRITE data mismatch\n");
+        return -1;
+    }
+    printf("✓ RDMA WRITE transferred and verified %zu bytes\n", test_size);
+
+    memset(ctx->send_buf, 0, test_size);
+    memset(ctx->recv_buf, 0xa5, test_size);
+    wr.wr_id = 301;
+    wr.opcode = IBV_WR_RDMA_READ;
+
+    if (ibv_post_send(ctx->qp, &wr, &bad_wr)) {
+        fprintf(stderr, "Failed to post RDMA READ: %s\n", strerror(errno));
+        return -1;
+    }
+    prev_sends = ctx->completed_sends;
+    if (poll_completions(ctx, prev_sends + 1, ctx->completed_recvs) < 0)
+        return -1;
+    if (memcmp(ctx->send_buf, ctx->recv_buf, test_size) != 0) {
+        fprintf(stderr, "RDMA READ data mismatch\n");
+        return -1;
+    }
+    printf("✓ RDMA READ transferred and verified %zu bytes\n", test_size);
+
     return 0;
 }
 
@@ -553,12 +622,19 @@ int main(void)
         goto cleanup;
     }
 
+    if (test_rdma_read_write(&ctx) < 0) {
+        fprintf(stderr, "\n✗ RDMA read/write test failed\n");
+        ret = 1;
+        goto cleanup;
+    }
+
     /* Summary */
     print_header("Test Summary");
     printf("✓ Setup: Device, PD, CQ, QP, MR\n");
     printf("✓ Test 1: Basic send/recv (1024 bytes)\n");
     printf("✓ Test 2: Multiple transfers (5 x 512 bytes)\n");
     printf("✓ Test 3: Varying sizes (64 to 4096 bytes)\n\n");
+    printf("✓ Test 4: RDMA write/read data verification (1024 bytes each)\n\n");
     printf("Total completions:\n");
     printf("  Sends: %d\n", ctx.completed_sends);
     printf("  Recvs: %d\n\n", ctx.completed_recvs);
