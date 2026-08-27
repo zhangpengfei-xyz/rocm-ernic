@@ -444,8 +444,8 @@ size_t dhcp_server_process(DhcpServer *server,
 
     case DHCP_MSG_RELEASE: {
         /* Release IP allocation */
-        dhcp_server_release_ip(server, request->chaddr);
         qemu_mutex_unlock(&server->lock);
+        dhcp_server_release_ip(server, request->chaddr);
         return 0; /* No response needed for RELEASE */
     }
 
