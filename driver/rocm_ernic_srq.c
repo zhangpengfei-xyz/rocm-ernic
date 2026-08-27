@@ -270,8 +270,13 @@ int rocm_ernic_create_srq(struct ib_srq *ibsrq,
     srq->wqe_cnt = (int)wqe_cnt;
     srq->max_gs = (int)init_attr->attr.max_sge;
     srq->offset = PAGE_SIZE;
-    srq->rq_ring = rocm_ernic_page_dir_get_ptr(&srq->pdir, 8);
-    memset(srq->rq_ring, 0, sizeof(*srq->rq_ring));
+    /*
+     * User-backed page directories contain DMA addresses only; pdir.pages is
+     * intentionally NULL.  The userspace provider owns and initializes this
+     * ring and posts SRQ receives directly, so do not dereference the page
+     * directory as a kernel virtual address here.
+     */
+    srq->rq_ring = NULL;
 
     memset(cmd, 0, sizeof(*cmd));
     cmd->hdr.cmd = ROCM_ERNIC_CMD_CREATE_SRQ;

@@ -339,6 +339,7 @@ static int rocm_ernic_init_device(struct rocm_ernic_dev *dev)
     /*  Initialize some device related stuff */
     spin_lock_init(&dev->cmd_lock);
     sema_init(&dev->cmd_sema, 1);
+    init_completion(&dev->cmd_done);
     atomic_set(&dev->num_qps, 0);
     atomic_set(&dev->num_srqs, 0);
     atomic_set(&dev->num_cqs, 0);
