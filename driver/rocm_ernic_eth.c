@@ -409,12 +409,9 @@ static void rocm_ernic_eth_process_rx(struct rocm_ernic_eth_dev *eth_dev)
                              "RX: Invalid buffer at descriptor %u (buf=%p "
                              "dma_addr=%pad)\n",
                              head, buf, &dma_addr);
-                    /* Clear descriptor status and advance - buffer will be
-                     * re-allocated on next use */
                     desc->status = 0;
-                    /* Advance head and continue to next descriptor */
+                    desc->length = ROCM_ERNIC_ETH_RX_BUFFER_SIZE;
                     head = (head + 1) % ring->size;
-                    /* Break out of inner if, but continue while loop */
                     break;
                 }
 
@@ -497,30 +494,12 @@ static void rocm_ernic_eth_process_rx(struct rocm_ernic_eth_dev *eth_dev)
                              pkt_len);
                 }
 
-                /* Re-allocate buffer for this descriptor */
-                dma_free_coherent(&eth_dev->pdev->dev,
-                                  ROCM_ERNIC_ETH_RX_BUFFER_SIZE, buf, dma_addr);
-                buf = dma_alloc_coherent(&eth_dev->pdev->dev,
-                                         ROCM_ERNIC_ETH_RX_BUFFER_SIZE,
-                                         &dma_addr, GFP_ATOMIC);
-                if (buf) {
-                    ring->buffers[head] = buf;
-                    ring->buffer_dma[head] = dma_addr;
-                    desc->addr = dma_addr;
-                    desc->length = ROCM_ERNIC_ETH_RX_BUFFER_SIZE;
-                } else {
-                    dev_warn(&eth_dev->pdev->dev,
-                             "RX: Failed to re-allocate buffer for descriptor "
-                             "%u\n",
-                             head);
-                    /* Mark buffer as invalid */
-                    ring->buffers[head] = NULL;
-                    ring->buffer_dma[head] = 0;
-                }
-
-                /* Clear descriptor status */
-                desc->status = 0;
             }
+
+            /* The coherent buffer remains owned by this ring slot and can be
+             * reused after the server observes the updated head pointer. */
+            desc->status = 0;
+            desc->length = ROCM_ERNIC_ETH_RX_BUFFER_SIZE;
 
             /* Advance head */
             head = (head + 1) % ring->size;
