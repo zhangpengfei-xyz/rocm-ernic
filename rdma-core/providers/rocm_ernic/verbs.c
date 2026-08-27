@@ -860,6 +860,22 @@ struct ibv_srq *rocm_ernic_create_srq_v(struct ibv_pd *pd,
     return &srq->vsrq.srq;
 }
 
+int rocm_ernic_modify_srq_v(struct ibv_srq *srq,
+                            struct ibv_srq_attr *attr, int attr_mask)
+{
+    struct ibv_modify_srq cmd;
+
+    return ibv_cmd_modify_srq(srq, attr, attr_mask, &cmd, sizeof(cmd));
+}
+
+int rocm_ernic_query_srq_v(struct ibv_srq *srq,
+                           struct ibv_srq_attr *attr)
+{
+    struct ibv_query_srq cmd;
+
+    return ibv_cmd_query_srq(srq, attr, &cmd, sizeof(cmd));
+}
+
 int rocm_ernic_destroy_srq_v(struct ibv_srq *ibsrq)
 {
     struct rocm_ernic_srq *srq = to_rocm_ernic_srq(ibsrq);

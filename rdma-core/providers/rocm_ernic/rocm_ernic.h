@@ -252,7 +252,11 @@ int rocm_ernic_post_recv_v(struct ibv_qp *qp, struct ibv_recv_wr *wr,
                            struct ibv_recv_wr **bad_wr);
 
 struct ibv_srq *rocm_ernic_create_srq_v(struct ibv_pd *pd,
-                                         struct ibv_srq_init_attr *attr);
+                                        struct ibv_srq_init_attr *attr);
+int rocm_ernic_modify_srq_v(struct ibv_srq *srq,
+                            struct ibv_srq_attr *attr, int attr_mask);
+int rocm_ernic_query_srq_v(struct ibv_srq *srq,
+                           struct ibv_srq_attr *attr);
 int rocm_ernic_destroy_srq_v(struct ibv_srq *srq);
 int rocm_ernic_post_srq_recv_v(struct ibv_srq *srq, struct ibv_recv_wr *wr,
                                  struct ibv_recv_wr **bad_wr);
