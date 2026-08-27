@@ -481,7 +481,10 @@ static void rocm_ernic_eth_process_rx(struct rocm_ernic_eth_dev *eth_dev)
                     if (netif_running(eth_dev->netdev)) {
                         eth_dev->netdev->stats.rx_packets++;
                         eth_dev->netdev->stats.rx_bytes += pkt_len;
-                        netif_receive_skb(skb);
+                        /* RX descriptors are drained from the hard IRQ handler.
+                         * Queue the skb for receive softirq
+                         * instead of running the network stack in hard IRQ context. */
+                        netif_rx(skb);
                     } else {
                         dev_warn(
                             &eth_dev->pdev->dev,
