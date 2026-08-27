@@ -197,9 +197,13 @@ add_executable(rocm-ernic ${ALL_SOURCES})
 target_include_directories(rocm-ernic PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/from-qemu/include/qemu-extra
-    ${VFIO_USER_INCLUDE_DIRS}
     ${GLIB2_INCLUDE_DIRS}
     ${IBVERBS_INCLUDE_DIRS}
+)
+
+# Prevent libvfio-user v0.8 -Wpacked warnings from failing -Werror builds.
+target_include_directories(rocm-ernic SYSTEM PRIVATE
+    ${VFIO_USER_INCLUDE_DIRS}
 )
 
 target_compile_definitions(rocm-ernic PRIVATE

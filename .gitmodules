@@ -1,0 +1,3 @@
+[submodule "libvfio-user"]
+	path = libvfio-user
+	url = https://github.com/zhangpengfei-xyz/libvfio-user.git
