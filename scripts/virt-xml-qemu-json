@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Run virt-xml without double-escaping quotes in qemu:arg values.
+
+virtinst 5.0.0 on Debian 13 escapes XML attribute values before passing them
+to libxml2, which escapes them again.  QEMU then receives literal ``&quot;``
+text and cannot parse JSON command-line arguments.  Keep the normal virt-xml
+parser and command-line interface, but let libxml2 perform the single required
+escaping step.
+"""
+
+import os
+import sys
+
+
+VIRT_MANAGER_MODULES = "/usr/share/virt-manager"
+
+if not os.path.isdir(VIRT_MANAGER_MODULES):
+    raise SystemExit(
+        "virt-manager Python modules were not found; install the virtinst package"
+    )
+
+sys.path.insert(0, VIRT_MANAGER_MODULES)
+
+from virtinst import virtxml, xmlapi  # noqa: E402
+
+
+_original_set_property = xmlapi._Libxml2API._node_set_property
+
+
+def _set_property_once(self, node, propname, setval):
+    if setval is None:
+        return _original_set_property(self, node, propname, setval)
+    node.setProp(propname, setval)
+
+
+xmlapi._Libxml2API._node_set_property = _set_property_once
+virtxml.runcli()
