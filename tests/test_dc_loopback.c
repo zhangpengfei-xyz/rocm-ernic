@@ -57,6 +57,8 @@ int main(void)
     struct ibv_recv_wr rwr = {};
     struct ibv_sge rsge = {};
     struct ibv_recv_wr *bad_rr = NULL;
+    struct ibv_srq_attr srq_query = {};
+    struct ibv_srq_attr srq_modify = {};
     struct ibv_qp_attr mod_attr = {};
     int mod_mask;
     int ndev;
@@ -100,6 +102,34 @@ int main(void)
     ibsrq = ibv_create_srq(pd, &srq_attr);
     if (!ibsrq) {
         perror("ibv_create_srq");
+        goto out;
+    }
+
+    if (ibv_query_srq(ibsrq, &srq_query)) {
+        perror("ibv_query_srq initial");
+        goto out;
+    }
+    if (srq_query.max_wr != srq_attr.attr.max_wr ||
+        srq_query.max_sge != srq_attr.attr.max_sge) {
+        fprintf(stderr,
+                "unexpected SRQ attributes: max_wr=%u max_sge=%u\n",
+                srq_query.max_wr, srq_query.max_sge);
+        goto out;
+    }
+
+    srq_modify.srq_limit = 2;
+    if (ibv_modify_srq(ibsrq, &srq_modify, IBV_SRQ_LIMIT)) {
+        perror("ibv_modify_srq");
+        goto out;
+    }
+    memset(&srq_query, 0, sizeof(srq_query));
+    if (ibv_query_srq(ibsrq, &srq_query)) {
+        perror("ibv_query_srq modified");
+        goto out;
+    }
+    if (srq_query.srq_limit != srq_modify.srq_limit) {
+        fprintf(stderr, "unexpected SRQ limit: got %u expected %u\n",
+                srq_query.srq_limit, srq_modify.srq_limit);
         goto out;
     }
 
@@ -314,11 +344,18 @@ int main(void)
             }
         }
 
+        if (memcmp(recv_buf, payload, sizeof(payload))) {
+            fprintf(stderr, "SEND_DC payload verification failed\n");
+            ibv_dereg_mr(send_mr);
+            free(send_buf);
+            goto out;
+        }
+
         ibv_dereg_mr(send_mr);
         free(send_buf);
     }
 
-    fprintf(stderr, "DC create paths OK (dctn=%u)\n",
+    fprintf(stderr, "DC/SRQ query, modify, and data paths OK (dctn=%u)\n",
             rocm_ernic_dc_get_dctn(dct));
     ret = 0;
 
