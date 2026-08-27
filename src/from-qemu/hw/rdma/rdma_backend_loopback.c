@@ -711,17 +711,19 @@ static void compute_sge_md5(PCIDevice *pci_dev, struct ibv_sge *sge,
     uint32_t total_len = 0;
     void *host_addr = NULL;
     uint64_t mapped_len = 0;
+    bool is_mr = false;
 
     /* Compute MD5 over all SGE data by mapping each SGE */
     for (uint32_t i = 0; i < num_sge && i < 32; i++) {
         if (sge[i].addr && sge[i].length > 0) {
             mapped_len = sge[i].length;
-            host_addr = rdma_pci_dma_map(pci_dev, sge[i].addr, mapped_len);
+            host_addr = loopback_translate_addr(pci_dev, sge[i].addr,
+                                                mapped_len, &is_mr);
             if (host_addr) {
                 g_checksum_update(checksum, (const guchar *)host_addr,
                                   sge[i].length);
                 total_len += sge[i].length;
-                rdma_pci_dma_unmap(pci_dev, host_addr, mapped_len);
+                loopback_unmap_addr(pci_dev, host_addr, mapped_len, is_mr);
             } else {
                 rdma_warn_report(
                     "Loopback: Failed to map SGE[%u] for MD5, addr=%#lx", i,
