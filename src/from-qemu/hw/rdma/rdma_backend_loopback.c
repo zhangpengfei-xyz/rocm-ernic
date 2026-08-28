@@ -1601,7 +1601,7 @@ static void loopback_post_send(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
         }
 
         /* Try to match with a recv on remote/local QP */
-        if (remote_qp && !g_queue_is_empty(remote_qp->recv_queue)) {
+        if (remote_qp) {
             qemu_mutex_lock(&remote_qp->lock);
             recv_wr = g_queue_pop_head(remote_qp->recv_queue);
             qemu_mutex_unlock(&remote_qp->lock);
