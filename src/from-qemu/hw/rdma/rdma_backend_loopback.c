@@ -16,7 +16,7 @@
 #include "rdma_utils.h"
 #include "standard-headers/rdma/vmw_pvrdma-abi.h"
 #include "hw/rdma/rdma.h"    /* For rdma_pci_dma_map/unmap */
-#include "hw/pci/pci.h"      /* For PCIDevice and pci_dma_sync */
+#include "hw/pci/pci.h"      /* For PCIDevice */
 #include "hw/pci/pci_regs.h" /* For PVRDMA_DEV */
 #include "vmw/pvrdma.h"      /* For PVRDMADev and stats */
 #include <errno.h>
@@ -343,6 +343,16 @@ static void generate_data_pattern(void *buffer, size_t length,
     }
 }
 
+static void *loopback_translate_addr(PCIDevice *pci_dev, uint64_t guest_addr,
+                                     uint64_t len, bool *is_mr);
+
+static void loopback_unmap_addr(PCIDevice *pci_dev, void *host_addr,
+                                uint64_t len, bool is_mr)
+{
+    if (host_addr && !is_mr)
+        rdma_pci_dma_unmap(pci_dev, host_addr, len);
+}
+
 /*
  * Helper: Copy data from source SGEs to destination SGEs with pattern support
  * Returns number of bytes copied, or -1 on error
@@ -357,21 +367,23 @@ static int loopback_copy_sge_data(PCIDevice *pci_dev, struct ibv_sge *src_sge,
     uint32_t total_copied = 0;
     void *src_host = NULL, *dst_host = NULL;
     uint64_t src_mapped_len = 0, dst_mapped_len = 0;
+    bool src_is_mr = false, dst_is_mr = false;
     int ret = 0;
 
     while (src_idx < num_src_sge && dst_idx < num_dst_sge) {
         /* Map source buffer if needed */
         if (!src_host || src_offset >= src_mapped_len) {
             if (src_host) {
-                rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+                loopback_unmap_addr(pci_dev, src_host, src_mapped_len,
+                                    src_is_mr);
                 src_host = NULL;
             }
             if (src_idx >= num_src_sge) {
                 break;
             }
             src_mapped_len = src_sge[src_idx].length;
-            src_host = rdma_pci_dma_map(pci_dev, src_sge[src_idx].addr,
-                                        src_mapped_len);
+            src_host = loopback_translate_addr(pci_dev, src_sge[src_idx].addr,
+                                               src_mapped_len, &src_is_mr);
             if (!src_host) {
                 rdma_error_report(
                     "Loopback: Failed to map source SGE[%u] addr=%#lx len=%u",
@@ -386,19 +398,16 @@ static int loopback_copy_sge_data(PCIDevice *pci_dev, struct ibv_sge *src_sge,
         /* Map destination buffer if needed */
         if (!dst_host || dst_offset >= dst_mapped_len) {
             if (dst_host) {
-                /* Sync writes before unmapping */
-                pci_dma_sync(pci_dev,
-                             (dma_addr_t)(uintptr_t)dst_sge[dst_idx - 1].addr,
-                             dst_mapped_len);
-                rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+                loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len,
+                                    dst_is_mr);
                 dst_host = NULL;
             }
             if (dst_idx >= num_dst_sge) {
                 break;
             }
             dst_mapped_len = dst_sge[dst_idx].length;
-            dst_host = rdma_pci_dma_map(pci_dev, dst_sge[dst_idx].addr,
-                                        dst_mapped_len);
+            dst_host = loopback_translate_addr(pci_dev, dst_sge[dst_idx].addr,
+                                               dst_mapped_len, &dst_is_mr);
             if (!dst_host) {
                 rdma_error_report(
                     "Loopback: Failed to map dest SGE[%u] addr=%#lx len=%u",
@@ -433,30 +442,25 @@ static int loopback_copy_sge_data(PCIDevice *pci_dev, struct ibv_sge *src_sge,
 
         /* Move to next SGE if current one exhausted */
         if (src_offset >= src_mapped_len) {
-            rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+            loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
             src_host = NULL;
             src_idx++;
             src_offset = 0;
         }
         if (dst_offset >= dst_mapped_len) {
-            /* Sync writes before unmapping */
-            pci_dma_sync(pci_dev, (dma_addr_t)(uintptr_t)dst_sge[dst_idx].addr,
-                         dst_mapped_len);
-            rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+            loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
             dst_host = NULL;
             dst_idx++;
             dst_offset = 0;
         }
     }
 
-    /* Sync and unmap remaining buffers */
+    /* Unmap remaining buffers */
     if (src_host) {
-        rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+        loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     }
     if (dst_host) {
-        pci_dma_sync(pci_dev, (dma_addr_t)(uintptr_t)dst_sge[dst_idx].addr,
-                     dst_mapped_len);
-        rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+        loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
     }
 
     return total_copied;
@@ -464,16 +468,13 @@ static int loopback_copy_sge_data(PCIDevice *pci_dev, struct ibv_sge *src_sge,
 out:
     /* Cleanup on error */
     if (src_host) {
-        rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+        loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     }
     if (dst_host) {
-        rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+        loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
     }
     return ret;
 }
-
-static void *loopback_translate_addr(PCIDevice *pci_dev, uint64_t guest_addr,
-                                     uint64_t len);
 
 /*
  * Helper: Copy data from source SGEs to a single remote address (RDMA
@@ -495,7 +496,8 @@ static int loopback_copy_to_remote_addr(
 
     /* Map remote address via MR or DMA */
     dst_mapped_len = total_len;
-    dst_host = loopback_translate_addr(pci_dev, remote_addr, dst_mapped_len);
+    dst_host = loopback_translate_addr(pci_dev, remote_addr, dst_mapped_len,
+                                       &dst_is_mr);
     if (!dst_host) {
         rdma_error_report("Loopback: Failed to map remote "
                           "addr=%#lx len=%u",
@@ -511,7 +513,7 @@ static int loopback_copy_to_remote_addr(
             }
             src_mapped_len = src_sge[src_idx].length;
             src_host = loopback_translate_addr(pci_dev, src_sge[src_idx].addr,
-                                               src_mapped_len);
+                                               src_mapped_len, &src_is_mr);
             if (!src_host) {
                 rdma_error_report(
                     "Loopback: Failed to map source SGE[%u] addr=%#lx len=%u",
@@ -546,19 +548,17 @@ static int loopback_copy_to_remote_addr(
 
         /* Move to next SGE if current one exhausted */
         if (src_offset >= src_mapped_len) {
-            rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+            loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
             src_host = NULL;
             src_idx++;
             src_offset = 0;
         }
     }
 
-    /* Sync writes to remote address */
-    pci_dma_sync(pci_dev, remote_addr, dst_mapped_len);
-    rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+    loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
 
     if (src_host) {
-        rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+        loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     }
 
     return total_copied;
@@ -566,10 +566,10 @@ static int loopback_copy_to_remote_addr(
 out:
     /* Cleanup on error */
     if (src_host) {
-        rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+        loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     }
     if (dst_host) {
-        rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+        loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
     }
     return ret;
 }
@@ -588,11 +588,13 @@ static int loopback_copy_from_remote_addr(
     uint32_t total_copied = 0;
     void *src_host = NULL, *dst_host = NULL;
     uint64_t src_mapped_len = 0, dst_mapped_len = 0;
+    bool src_is_mr = false, dst_is_mr = false;
     int ret = 0;
 
     /* Map remote address via MR or DMA */
     src_mapped_len = total_len;
-    src_host = loopback_translate_addr(pci_dev, remote_addr, src_mapped_len);
+    src_host = loopback_translate_addr(pci_dev, remote_addr, src_mapped_len,
+                                       &src_is_mr);
     if (!src_host) {
         rdma_error_report("Loopback: Failed to map remote "
                           "addr=%#lx len=%u",
@@ -608,7 +610,7 @@ static int loopback_copy_from_remote_addr(
             }
             dst_mapped_len = dst_sge[dst_idx].length;
             dst_host = loopback_translate_addr(pci_dev, dst_sge[dst_idx].addr,
-                                               dst_mapped_len);
+                                               dst_mapped_len, &dst_is_mr);
             if (!dst_host) {
                 rdma_error_report(
                     "Loopback: Failed to map dest SGE[%u] addr=%#lx len=%u",
@@ -643,22 +645,17 @@ static int loopback_copy_from_remote_addr(
 
         /* Move to next SGE if current one exhausted */
         if (dst_offset >= dst_mapped_len) {
-            /* Sync writes before unmapping */
-            pci_dma_sync(pci_dev, (dma_addr_t)(uintptr_t)dst_sge[dst_idx].addr,
-                         dst_mapped_len);
-            rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+            loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
             dst_host = NULL;
             dst_idx++;
             dst_offset = 0;
         }
     }
 
-    /* Sync and unmap remaining buffers */
-    rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+    /* Unmap remaining buffers */
+    loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     if (dst_host) {
-        pci_dma_sync(pci_dev, (dma_addr_t)(uintptr_t)dst_sge[dst_idx].addr,
-                     dst_mapped_len);
-        rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+        loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
     }
 
     return total_copied;
@@ -666,10 +663,10 @@ static int loopback_copy_from_remote_addr(
 out:
     /* Cleanup on error */
     if (src_host) {
-        rdma_pci_dma_unmap(pci_dev, src_host, src_mapped_len);
+        loopback_unmap_addr(pci_dev, src_host, src_mapped_len, src_is_mr);
     }
     if (dst_host) {
-        rdma_pci_dma_unmap(pci_dev, dst_host, dst_mapped_len);
+        loopback_unmap_addr(pci_dev, dst_host, dst_mapped_len, dst_is_mr);
     }
     return ret;
 }
@@ -681,17 +678,19 @@ static void compute_sge_md5(PCIDevice *pci_dev, struct ibv_sge *sge,
     uint32_t total_len = 0;
     void *host_addr = NULL;
     uint64_t mapped_len = 0;
+    bool is_mr = false;
 
     /* Compute MD5 over all SGE data by mapping each SGE */
     for (uint32_t i = 0; i < num_sge && i < 32; i++) {
         if (sge[i].addr && sge[i].length > 0) {
             mapped_len = sge[i].length;
-            host_addr = rdma_pci_dma_map(pci_dev, sge[i].addr, mapped_len);
+            host_addr = loopback_translate_addr(pci_dev, sge[i].addr,
+                                                mapped_len, &is_mr);
             if (host_addr) {
                 g_checksum_update(checksum, (const guchar *)host_addr,
                                   sge[i].length);
                 total_len += sge[i].length;
-                rdma_pci_dma_unmap(pci_dev, host_addr, mapped_len);
+                loopback_unmap_addr(pci_dev, host_addr, mapped_len, is_mr);
             } else {
                 rdma_warn_report(
                     "Loopback: Failed to map SGE[%u] for MD5, addr=%#lx", i,
@@ -906,8 +905,9 @@ static int loopback_create_mr(RdmaBackendMR *mr, RdmaBackendPD *pd, void *addr,
  * guest virtual address. Returns host_virt + offset.
  */
 static void *loopback_translate_addr(PCIDevice *pci_dev, uint64_t guest_addr,
-                                     uint64_t len)
+                                     uint64_t len, bool *is_mr)
 {
+    *is_mr = false;
     if (!global_mrs_table)
         goto fallback;
 
@@ -926,6 +926,7 @@ static void *loopback_translate_addr(PCIDevice *pci_dev, uint64_t guest_addr,
                              "MR %u virt+0x%lx",
                              (unsigned long)guest_addr, lmr->handle,
                              (unsigned long)off);
+            *is_mr = true;
             return (uint8_t *)lmr->virt + off;
         }
     }
@@ -936,6 +937,10 @@ fallback:
 
 static void loopback_destroy_mr(RdmaBackendMR *mr)
 {
+    uint32_t handle = (uint32_t)(uintptr_t)mr->ibmr;
+
+    if (global_mrs_table)
+        g_hash_table_remove(global_mrs_table, GUINT_TO_POINTER(handle));
     rdma_info_report("Loopback: Destroyed MR");
 }
 
