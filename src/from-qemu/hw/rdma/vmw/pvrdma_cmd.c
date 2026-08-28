@@ -38,7 +38,8 @@
 #include "standard-headers/rdma/vmw_pvrdma-abi.h"
 
 static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
-                                uint32_t nchunks, size_t length)
+                                uint32_t nchunks, uint64_t guest_start,
+                                size_t length)
 {
     uint64_t *dir, *tbl;
     int tbl_idx, dir_idx, addr_idx;
@@ -49,8 +50,8 @@ static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
         return NULL;
     }
 
-    length = ROUND_UP(length, PAGE_SIZE);
-    if (nchunks * PAGE_SIZE != length) {
+    length = ROUND_UP((guest_start & (PAGE_SIZE - 1)) + length, PAGE_SIZE);
+    if ((size_t)nchunks * PAGE_SIZE != length) {
         rdma_error_report("Invalid nchunks/length (%u, %lu)", nchunks,
                           (unsigned long)length);
         return NULL;
@@ -273,7 +274,7 @@ static int create_mr(PVRDMADev *dev, union pvrdma_cmd_req *req,
 
     if (!(cmd->flags & PVRDMA_MR_FLAG_DMA)) {
         host_virt = pvrdma_map_to_pdir(pci_dev, cmd->pdir_dma, cmd->nchunks,
-                                       cmd->length);
+                                       cmd->start, cmd->length);
         if (!host_virt) {
             /* For loopback backend, we can continue without mapped memory */
             /* The backend just needs metadata (length, keys) */
@@ -292,7 +293,7 @@ static int create_mr(PVRDMADev *dev, union pvrdma_cmd_req *req,
                           cmd->length, host_virt, cmd->access_flags,
                           &resp->mr_handle, &resp->lkey, &resp->rkey);
     if (rc && host_virt) {
-        munmap(host_virt, cmd->length);
+        munmap(host_virt, ROUND_UP((cmd->start & (PAGE_SIZE - 1)) + cmd->length, PAGE_SIZE));
     }
 
     if (!rc) {

@@ -30,6 +30,7 @@
 #include "qemu/compiler.h" /* For unlikely() */
 #include "qemu/bitmap.h"   /* For bitmap operations */
 #include "qemu/atomic.h"   /* For qatomic_set */
+#include "qemu/cutils.h"   /* For ROUND_UP */
 #include "qemu/thread.h"   /* For QEMU_LOCK_GUARD */
 #include "rdma_utils.h"
 #include "rdma_backend.h"
@@ -331,9 +332,11 @@ void rdma_rm_dealloc_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle)
             mr->backend_mr.backend_ops->destroy_mr) {
             mr->backend_mr.backend_ops->destroy_mr(&mr->backend_mr);
         }
-        if (mr->start) {
+        if (mr->virt) {
+            size_t length = ROUND_UP((mr->start & (PAGE_SIZE - 1)) + mr->length, PAGE_SIZE);
+
             mr->virt -= (mr->start & (PAGE_SIZE - 1));
-            munmap(mr->virt, mr->length);
+            munmap(mr->virt, length);
         }
         rdma_res_tbl_dealloc(&dev_res->mr_tbl, mr_handle);
         rdma_info_report("rdma_rm_dealloc_mr: Deallocated MR handle %u",
