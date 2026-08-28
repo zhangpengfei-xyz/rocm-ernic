@@ -920,6 +920,197 @@ struct cmd_handler {
                 union pvrdma_cmd_resp *rsp);
 };
 
+static const char *adminq_cmd_name(uint32_t cmd)
+{
+    switch (cmd) {
+    case PVRDMA_CMD_QUERY_PORT: return "QUERY_PORT";
+    case PVRDMA_CMD_QUERY_PKEY: return "QUERY_PKEY";
+    case PVRDMA_CMD_CREATE_PD: return "CREATE_PD";
+    case PVRDMA_CMD_DESTROY_PD: return "DESTROY_PD";
+    case PVRDMA_CMD_CREATE_MR: return "CREATE_MR";
+    case PVRDMA_CMD_DESTROY_MR: return "DESTROY_MR";
+    case PVRDMA_CMD_CREATE_CQ: return "CREATE_CQ";
+    case PVRDMA_CMD_RESIZE_CQ: return "RESIZE_CQ";
+    case PVRDMA_CMD_DESTROY_CQ: return "DESTROY_CQ";
+    case PVRDMA_CMD_CREATE_QP: return "CREATE_QP";
+    case PVRDMA_CMD_MODIFY_QP: return "MODIFY_QP";
+    case PVRDMA_CMD_QUERY_QP: return "QUERY_QP";
+    case PVRDMA_CMD_DESTROY_QP: return "DESTROY_QP";
+    case PVRDMA_CMD_CREATE_UC: return "CREATE_UC";
+    case PVRDMA_CMD_DESTROY_UC: return "DESTROY_UC";
+    case PVRDMA_CMD_CREATE_BIND: return "CREATE_BIND";
+    case PVRDMA_CMD_DESTROY_BIND: return "DESTROY_BIND";
+    case PVRDMA_CMD_CREATE_SRQ: return "CREATE_SRQ";
+    case PVRDMA_CMD_MODIFY_SRQ: return "MODIFY_SRQ";
+    case PVRDMA_CMD_QUERY_SRQ: return "QUERY_SRQ";
+    case PVRDMA_CMD_DESTROY_SRQ: return "DESTROY_SRQ";
+    default: return "UNKNOWN";
+    }
+}
+
+static void trace_adminq_req(uint64_t seq, const union pvrdma_cmd_req *req)
+{
+    const char *name = adminq_cmd_name(req->hdr.cmd);
+
+    rdma_info_report("ADMINQ[%" PRIu64 "] REQ cmd=%u(%s) response=%#" PRIx64,
+                     seq, req->hdr.cmd, name, req->hdr.response);
+    switch (req->hdr.cmd) {
+    case PVRDMA_CMD_QUERY_PORT:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ QUERY_PORT port=%u", seq,
+                         req->query_port.port_num);
+        break;
+    case PVRDMA_CMD_QUERY_PKEY:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ QUERY_PKEY port=%u index=%u",
+                         seq, req->query_pkey.port_num, req->query_pkey.index);
+        break;
+    case PVRDMA_CMD_CREATE_UC:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ CREATE_UC pfn=%#" PRIx64,
+                         seq, req->create_uc.pfn64);
+        break;
+    case PVRDMA_CMD_DESTROY_UC:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ DESTROY_UC ctx=%u", seq,
+                         req->destroy_uc.ctx_handle);
+        break;
+    case PVRDMA_CMD_CREATE_PD:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ CREATE_PD ctx=%u", seq,
+                         req->create_pd.ctx_handle);
+        break;
+    case PVRDMA_CMD_DESTROY_PD:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ DESTROY_PD pd=%u", seq,
+                         req->destroy_pd.pd_handle);
+        break;
+    case PVRDMA_CMD_CREATE_MR:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] REQ CREATE_MR pd=%u start=%#" PRIx64
+            " length=%" PRIu64 " pdir_dma=%#" PRIx64
+            " access=%#x flags=%#x nchunks=%u",
+            seq, req->create_mr.pd_handle, req->create_mr.start,
+            req->create_mr.length, req->create_mr.pdir_dma,
+            req->create_mr.access_flags, req->create_mr.flags,
+            req->create_mr.nchunks);
+        break;
+    case PVRDMA_CMD_DESTROY_MR:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ DESTROY_MR mr=%u", seq,
+                         req->destroy_mr.mr_handle);
+        break;
+    case PVRDMA_CMD_CREATE_CQ:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] REQ CREATE_CQ ctx=%u cqe=%u nchunks=%u "
+            "pdir_dma=%#" PRIx64,
+            seq, req->create_cq.ctx_handle, req->create_cq.cqe,
+            req->create_cq.nchunks, req->create_cq.pdir_dma);
+        break;
+    case PVRDMA_CMD_DESTROY_CQ:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ DESTROY_CQ cq=%u", seq,
+                         req->destroy_cq.cq_handle);
+        break;
+    case PVRDMA_CMD_CREATE_QP:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] REQ CREATE_QP pd=%u scq=%u rcq=%u srq=%u "
+            "send_wr=%u recv_wr=%u send_sge=%u recv_sge=%u inline=%u "
+            "sq_sig_all=%u qp_type=%u is_srq=%u chunks=%u/%u pdir_dma=%#" PRIx64,
+            seq, req->create_qp.pd_handle, req->create_qp.send_cq_handle,
+            req->create_qp.recv_cq_handle, req->create_qp.srq_handle,
+            req->create_qp.max_send_wr, req->create_qp.max_recv_wr,
+            req->create_qp.max_send_sge, req->create_qp.max_recv_sge,
+            req->create_qp.max_inline_data, req->create_qp.sq_sig_all,
+            req->create_qp.qp_type, req->create_qp.is_srq,
+            req->create_qp.total_chunks, req->create_qp.send_chunks,
+            req->create_qp.pdir_dma);
+        break;
+    case PVRDMA_CMD_MODIFY_QP:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] REQ MODIFY_QP qp=%u mask=%#x state=%u "
+            "pkey=%u port=%u access=%#x mtu=%u dest_qpn=%u rq_psn=%u "
+            "sq_psn=%u max_dest_atomic=%u min_rnr=%u timeout=%u retry=%u "
+            "rnr_retry=%u max_rd_atomic=%u sgid_index=%u dgid="
+            "%02x%02x:%02x%02x:...:%02x%02x",
+            seq, req->modify_qp.qp_handle, req->modify_qp.attr_mask,
+            req->modify_qp.attrs.qp_state, req->modify_qp.attrs.pkey_index,
+            req->modify_qp.attrs.port_num, req->modify_qp.attrs.qp_access_flags,
+            req->modify_qp.attrs.path_mtu, req->modify_qp.attrs.dest_qp_num,
+            req->modify_qp.attrs.rq_psn, req->modify_qp.attrs.sq_psn,
+            req->modify_qp.attrs.max_dest_rd_atomic,
+            req->modify_qp.attrs.min_rnr_timer, req->modify_qp.attrs.timeout,
+            req->modify_qp.attrs.retry_cnt, req->modify_qp.attrs.rnr_retry,
+            req->modify_qp.attrs.max_rd_atomic,
+            req->modify_qp.attrs.ah_attr.grh.sgid_index,
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[0],
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[1],
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[2],
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[3],
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[14],
+            req->modify_qp.attrs.ah_attr.grh.dgid.raw[15]);
+        break;
+    case PVRDMA_CMD_QUERY_QP:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ QUERY_QP qp=%u mask=%#x",
+                         seq, req->query_qp.qp_handle,
+                         req->query_qp.attr_mask);
+        break;
+    case PVRDMA_CMD_DESTROY_QP:
+        rdma_info_report("ADMINQ[%" PRIu64 "] REQ DESTROY_QP qp=%u", seq,
+                         req->destroy_qp.qp_handle);
+        break;
+    default:
+        break;
+    }
+}
+
+static void trace_adminq_rsp(uint64_t seq, uint32_t cmd,
+                             const union pvrdma_cmd_resp *rsp)
+{
+    rdma_info_report(
+        "ADMINQ[%" PRIu64 "] RSP cmd=%u(%s) response=%#" PRIx64
+        " ack=%#x err=%u",
+        seq, cmd, adminq_cmd_name(cmd), rsp->hdr.response, rsp->hdr.ack,
+        rsp->hdr.err);
+    switch (cmd) {
+    case PVRDMA_CMD_CREATE_UC:
+        rdma_info_report("ADMINQ[%" PRIu64 "] RSP CREATE_UC ctx=%u", seq,
+                         rsp->create_uc_resp.ctx_handle);
+        break;
+    case PVRDMA_CMD_CREATE_PD:
+        rdma_info_report("ADMINQ[%" PRIu64 "] RSP CREATE_PD pd=%u", seq,
+                         rsp->create_pd_resp.pd_handle);
+        break;
+    case PVRDMA_CMD_CREATE_MR:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] RSP CREATE_MR mr=%u lkey=%#x rkey=%#x",
+            seq, rsp->create_mr_resp.mr_handle,
+            rsp->create_mr_resp.lkey, rsp->create_mr_resp.rkey);
+        break;
+    case PVRDMA_CMD_CREATE_CQ:
+        rdma_info_report("ADMINQ[%" PRIu64 "] RSP CREATE_CQ cq=%u cqe=%u",
+                         seq, rsp->create_cq_resp.cq_handle,
+                         rsp->create_cq_resp.cqe);
+        break;
+    case PVRDMA_CMD_CREATE_QP:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] RSP CREATE_QP qpn=%u send_wr=%u recv_wr=%u "
+            "send_sge=%u recv_sge=%u inline=%u",
+            seq, rsp->create_qp_resp.qpn,
+            rsp->create_qp_resp.max_send_wr,
+            rsp->create_qp_resp.max_recv_wr,
+            rsp->create_qp_resp.max_send_sge,
+            rsp->create_qp_resp.max_recv_sge,
+            rsp->create_qp_resp.max_inline_data);
+        break;
+    case PVRDMA_CMD_QUERY_QP:
+        rdma_info_report(
+            "ADMINQ[%" PRIu64 "] RSP QUERY_QP state=%u dest_qpn=%u rq_psn=%u "
+            "sq_psn=%u remote_addr=%#" PRIx64 " remote_rkey=%#x",
+            seq, rsp->query_qp_resp.attrs.qp_state,
+            rsp->query_qp_resp.attrs.dest_qp_num,
+            rsp->query_qp_resp.attrs.rq_psn,
+            rsp->query_qp_resp.attrs.sq_psn,
+            rsp->query_qp_resp.attrs.remote_addr,
+            rsp->query_qp_resp.attrs.remote_rkey);
+        break;
+    default:
+        break;
+    }
+}
+
 static struct cmd_handler cmd_handlers[] = {
     {PVRDMA_CMD_QUERY_PORT, PVRDMA_CMD_QUERY_PORT_RESP, query_port},
     {PVRDMA_CMD_QUERY_PKEY, PVRDMA_CMD_QUERY_PKEY_RESP, query_pkey},
@@ -946,6 +1137,9 @@ static struct cmd_handler cmd_handlers[] = {
 
 int pvrdma_exec_cmd(PVRDMADev *dev)
 {
+    static uint64_t adminq_trace_seq;
+    uint64_t seq = ++adminq_trace_seq;
+    uint32_t cmd;
     int err = 0xFFFF;
     DSRInfo *dsr_info;
 
@@ -964,6 +1158,9 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
 
     rdma_info_report(">>> pvrdma_exec_cmd: DSR is valid, req command = %u",
                      dsr_info->req->hdr.cmd);
+
+    cmd = dsr_info->req->hdr.cmd;
+    trace_adminq_req(seq, dsr_info->req);
 
     if (dsr_info->req->hdr.cmd >=
         sizeof(cmd_handlers) / sizeof(struct cmd_handler)) {
@@ -986,6 +1183,7 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
     dsr_info->rsp->hdr.response = dsr_info->req->hdr.response;
     dsr_info->rsp->hdr.ack = cmd_handlers[dsr_info->req->hdr.cmd].ack;
     dsr_info->rsp->hdr.err = err < 0 ? -err : 0;
+    trace_adminq_rsp(seq, cmd, dsr_info->rsp);
     rdma_info_report(
         ">>> pvrdma_exec_cmd: RESP prepared response=0x%x ack=0x%x err=%u",
         dsr_info->rsp->hdr.response, dsr_info->rsp->hdr.ack,

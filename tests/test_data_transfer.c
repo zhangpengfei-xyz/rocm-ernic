@@ -19,6 +19,16 @@
 #define NUM_ITERATIONS 10
 #define TEST_PATTERN   0xAB
 
+static unsigned int trace_ibv_seq;
+
+#define TRACE_IBV(...)                                                       \
+    do {                                                                     \
+        printf("TRACE_IBV[%u] ", ++trace_ibv_seq);                           \
+        printf(__VA_ARGS__);                                                 \
+        putchar('\n');                                                       \
+        fflush(stdout);                                                      \
+    } while (0)
+
 /* Test pattern types to verify */
 typedef enum {
     PATTERN_CUSTOM,    /* Use our own test pattern */
@@ -63,7 +73,10 @@ static int setup_resources(struct test_context *ctx)
     print_header("Setting Up Resources");
 
     /* Get device list */
+    TRACE_IBV("ENTER ibv_get_device_list");
     dev_list = ibv_get_device_list(&num_devices);
+    TRACE_IBV("EXIT ibv_get_device_list list=%p num_devices=%d",
+              (void *)dev_list, num_devices);
     if (!dev_list || num_devices == 0) {
         fprintf(stderr, "No RDMA devices found - skipping test\n");
         ibv_free_device_list(dev_list); /* Free even if NULL is safe */
@@ -71,7 +84,10 @@ static int setup_resources(struct test_context *ctx)
     }
 
     /* Open first device */
+    TRACE_IBV("ENTER ibv_open_device device=%s",
+              ibv_get_device_name(dev_list[0]));
     ctx->context = ibv_open_device(dev_list[0]);
+    TRACE_IBV("EXIT ibv_open_device context=%p", (void *)ctx->context);
     if (!ctx->context) {
         fprintf(stderr, "Failed to open device\n");
         ibv_free_device_list(dev_list);
@@ -81,7 +97,9 @@ static int setup_resources(struct test_context *ctx)
     ibv_free_device_list(dev_list);
 
     /* Allocate PD */
+    TRACE_IBV("ENTER ibv_alloc_pd context=%p", (void *)ctx->context);
     ctx->pd = ibv_alloc_pd(ctx->context);
+    TRACE_IBV("EXIT ibv_alloc_pd pd=%p", (void *)ctx->pd);
     if (!ctx->pd) {
         fprintf(stderr, "Failed to allocate PD\n");
         return -1;
@@ -89,8 +107,16 @@ static int setup_resources(struct test_context *ctx)
     printf("✓ Allocated Protection Domain\n");
 
     /* Create CQs */
+    TRACE_IBV("ENTER ibv_create_cq role=send context=%p cqe=16 channel=NULL "
+              "cq_context=NULL comp_vector=0", (void *)ctx->context);
     ctx->send_cq = ibv_create_cq(ctx->context, 16, NULL, NULL, 0);
+    TRACE_IBV("EXIT ibv_create_cq role=send cq=%p cqe=%d",
+              (void *)ctx->send_cq, ctx->send_cq ? ctx->send_cq->cqe : -1);
+    TRACE_IBV("ENTER ibv_create_cq role=recv context=%p cqe=16 channel=NULL "
+              "cq_context=NULL comp_vector=0", (void *)ctx->context);
     ctx->recv_cq = ibv_create_cq(ctx->context, 16, NULL, NULL, 0);
+    TRACE_IBV("EXIT ibv_create_cq role=recv cq=%p cqe=%d",
+              (void *)ctx->recv_cq, ctx->recv_cq ? ctx->recv_cq->cqe : -1);
     if (!ctx->send_cq || !ctx->recv_cq) {
         fprintf(stderr, "Failed to create CQs\n");
         return -1;
@@ -108,10 +134,22 @@ static int setup_resources(struct test_context *ctx)
     printf("✓ Allocated buffers (%d bytes each)\n", BUFFER_SIZE);
 
     /* Register memory regions */
+    TRACE_IBV("ENTER ibv_reg_mr role=send pd=%p addr=%p length=%u access=%#x",
+              (void *)ctx->pd, (void *)ctx->send_buf, BUFFER_SIZE,
+              IBV_ACCESS_LOCAL_WRITE);
     ctx->send_mr =
         ibv_reg_mr(ctx->pd, ctx->send_buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
+    TRACE_IBV("EXIT ibv_reg_mr role=send mr=%p lkey=%#x rkey=%#x",
+              (void *)ctx->send_mr, ctx->send_mr ? ctx->send_mr->lkey : 0,
+              ctx->send_mr ? ctx->send_mr->rkey : 0);
+    TRACE_IBV("ENTER ibv_reg_mr role=recv pd=%p addr=%p length=%u access=%#x",
+              (void *)ctx->pd, (void *)ctx->recv_buf, BUFFER_SIZE,
+              IBV_ACCESS_LOCAL_WRITE);
     ctx->recv_mr =
         ibv_reg_mr(ctx->pd, ctx->recv_buf, BUFFER_SIZE, IBV_ACCESS_LOCAL_WRITE);
+    TRACE_IBV("EXIT ibv_reg_mr role=recv mr=%p lkey=%#x rkey=%#x",
+              (void *)ctx->recv_mr, ctx->recv_mr ? ctx->recv_mr->lkey : 0,
+              ctx->recv_mr ? ctx->recv_mr->rkey : 0);
     if (!ctx->send_mr || !ctx->recv_mr) {
         fprintf(stderr, "Failed to register MRs: %s\n", strerror(errno));
         return -1;
@@ -130,7 +168,20 @@ static int setup_resources(struct test_context *ctx)
     qp_init_attr.cap.max_send_sge = 1;
     qp_init_attr.cap.max_recv_sge = 1;
 
+    TRACE_IBV("ENTER ibv_create_qp pd=%p type=%u scq=%p rcq=%p send_wr=%u "
+              "recv_wr=%u send_sge=%u recv_sge=%u sq_sig_all=%u",
+              (void *)ctx->pd, qp_init_attr.qp_type,
+              (void *)qp_init_attr.send_cq, (void *)qp_init_attr.recv_cq,
+              qp_init_attr.cap.max_send_wr, qp_init_attr.cap.max_recv_wr,
+              qp_init_attr.cap.max_send_sge, qp_init_attr.cap.max_recv_sge,
+              qp_init_attr.sq_sig_all);
     ctx->qp = ibv_create_qp(ctx->pd, &qp_init_attr);
+    TRACE_IBV("EXIT ibv_create_qp qp=%p qpn=%#x send_wr=%u recv_wr=%u "
+              "send_sge=%u recv_sge=%u inline=%u",
+              (void *)ctx->qp, ctx->qp ? ctx->qp->qp_num : 0,
+              qp_init_attr.cap.max_send_wr, qp_init_attr.cap.max_recv_wr,
+              qp_init_attr.cap.max_send_sge, qp_init_attr.cap.max_recv_sge,
+              qp_init_attr.cap.max_inline_data);
     if (!ctx->qp) {
         fprintf(stderr, "Failed to create QP: %s\n", strerror(errno));
         fprintf(stderr,
@@ -146,9 +197,15 @@ static int setup_resources(struct test_context *ctx)
     qp_attr.port_num = 1;
     qp_attr.qp_access_flags = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
 
-    if (ibv_modify_qp(ctx->qp, &qp_attr,
-                      IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT |
-                          IBV_QP_ACCESS_FLAGS)) {
+    int modify_mask = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT |
+                      IBV_QP_ACCESS_FLAGS;
+    TRACE_IBV("ENTER ibv_modify_qp transition=INIT qp=%#x mask=%#x state=%u "
+              "pkey=%u port=%u access=%#x", ctx->qp->qp_num, modify_mask,
+              qp_attr.qp_state, qp_attr.pkey_index, qp_attr.port_num,
+              qp_attr.qp_access_flags);
+    int modify_ret = ibv_modify_qp(ctx->qp, &qp_attr, modify_mask);
+    TRACE_IBV("EXIT ibv_modify_qp transition=INIT ret=%d", modify_ret);
+    if (modify_ret) {
         fprintf(stderr, "Failed to transition to INIT\n");
         return -1;
     }
@@ -156,7 +213,13 @@ static int setup_resources(struct test_context *ctx)
 
     /* Transition to RTR (loopback - connect to self) */
     union ibv_gid my_gid;
-    if (ibv_query_gid(ctx->context, 1, 0, &my_gid)) {
+    TRACE_IBV("ENTER ibv_query_gid context=%p port=1 index=0",
+              (void *)ctx->context);
+    int gid_ret = ibv_query_gid(ctx->context, 1, 0, &my_gid);
+    TRACE_IBV("EXIT ibv_query_gid ret=%d gid=%02x%02x:%02x%02x:...:%02x%02x",
+              gid_ret, my_gid.raw[0], my_gid.raw[1], my_gid.raw[2],
+              my_gid.raw[3], my_gid.raw[14], my_gid.raw[15]);
+    if (gid_ret) {
         fprintf(stderr, "Failed to query GID\n");
         return -1;
     }
@@ -178,10 +241,19 @@ static int setup_resources(struct test_context *ctx)
     qp_attr.ah_attr.grh.sgid_index = 0;
     qp_attr.ah_attr.grh.hop_limit = 1;
 
-    if (ibv_modify_qp(ctx->qp, &qp_attr,
-                      IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
-                          IBV_QP_DEST_QPN | IBV_QP_RQ_PSN |
-                          IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER)) {
+    modify_mask = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
+                  IBV_QP_DEST_QPN | IBV_QP_RQ_PSN |
+                  IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
+    TRACE_IBV("ENTER ibv_modify_qp transition=RTR qp=%#x mask=%#x state=%u "
+              "mtu=%u dest_qpn=%#x rq_psn=%u max_dest_atomic=%u min_rnr=%u "
+              "sgid_index=%u hop_limit=%u", ctx->qp->qp_num, modify_mask,
+              qp_attr.qp_state, qp_attr.path_mtu, qp_attr.dest_qp_num,
+              qp_attr.rq_psn, qp_attr.max_dest_rd_atomic,
+              qp_attr.min_rnr_timer, qp_attr.ah_attr.grh.sgid_index,
+              qp_attr.ah_attr.grh.hop_limit);
+    modify_ret = ibv_modify_qp(ctx->qp, &qp_attr, modify_mask);
+    TRACE_IBV("EXIT ibv_modify_qp transition=RTR ret=%d", modify_ret);
+    if (modify_ret) {
         fprintf(stderr, "Failed to transition to RTR: %s\n", strerror(errno));
         return -1;
     }
@@ -196,10 +268,17 @@ static int setup_resources(struct test_context *ctx)
     qp_attr.rnr_retry = 7;
     qp_attr.max_rd_atomic = 1;
 
-    if (ibv_modify_qp(ctx->qp, &qp_attr,
-                      IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
-                          IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN |
-                          IBV_QP_MAX_QP_RD_ATOMIC)) {
+    modify_mask = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
+                  IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN |
+                  IBV_QP_MAX_QP_RD_ATOMIC;
+    TRACE_IBV("ENTER ibv_modify_qp transition=RTS qp=%#x mask=%#x state=%u "
+              "sq_psn=%u timeout=%u retry=%u rnr_retry=%u max_rd_atomic=%u",
+              ctx->qp->qp_num, modify_mask, qp_attr.qp_state, qp_attr.sq_psn,
+              qp_attr.timeout, qp_attr.retry_cnt, qp_attr.rnr_retry,
+              qp_attr.max_rd_atomic);
+    modify_ret = ibv_modify_qp(ctx->qp, &qp_attr, modify_mask);
+    TRACE_IBV("EXIT ibv_modify_qp transition=RTS ret=%d", modify_ret);
+    if (modify_ret) {
         fprintf(stderr, "Failed to transition to RTS\n");
         return -1;
     }
@@ -470,20 +549,45 @@ static int test_varying_sizes(struct test_context *ctx)
 
 static void cleanup_resources(struct test_context *ctx)
 {
-    if (ctx->qp)
+    if (ctx->qp) {
+        TRACE_IBV("ENTER ibv_destroy_qp qpn=%#x", ctx->qp->qp_num);
         ibv_destroy_qp(ctx->qp);
-    if (ctx->send_mr)
+        TRACE_IBV("EXIT ibv_destroy_qp");
+    }
+    if (ctx->send_mr) {
+        TRACE_IBV("ENTER ibv_dereg_mr role=send lkey=%#x",
+                  ctx->send_mr->lkey);
         ibv_dereg_mr(ctx->send_mr);
-    if (ctx->recv_mr)
+        TRACE_IBV("EXIT ibv_dereg_mr role=send");
+    }
+    if (ctx->recv_mr) {
+        TRACE_IBV("ENTER ibv_dereg_mr role=recv lkey=%#x",
+                  ctx->recv_mr->lkey);
         ibv_dereg_mr(ctx->recv_mr);
-    if (ctx->send_cq)
+        TRACE_IBV("EXIT ibv_dereg_mr role=recv");
+    }
+    if (ctx->send_cq) {
+        TRACE_IBV("ENTER ibv_destroy_cq role=send cq=%p",
+                  (void *)ctx->send_cq);
         ibv_destroy_cq(ctx->send_cq);
-    if (ctx->recv_cq)
+        TRACE_IBV("EXIT ibv_destroy_cq role=send");
+    }
+    if (ctx->recv_cq) {
+        TRACE_IBV("ENTER ibv_destroy_cq role=recv cq=%p",
+                  (void *)ctx->recv_cq);
         ibv_destroy_cq(ctx->recv_cq);
-    if (ctx->pd)
+        TRACE_IBV("EXIT ibv_destroy_cq role=recv");
+    }
+    if (ctx->pd) {
+        TRACE_IBV("ENTER ibv_dealloc_pd pd=%p", (void *)ctx->pd);
         ibv_dealloc_pd(ctx->pd);
-    if (ctx->context)
+        TRACE_IBV("EXIT ibv_dealloc_pd");
+    }
+    if (ctx->context) {
+        TRACE_IBV("ENTER ibv_close_device context=%p", (void *)ctx->context);
         ibv_close_device(ctx->context);
+        TRACE_IBV("EXIT ibv_close_device");
+    }
     free(ctx->send_buf);
     free(ctx->recv_buf);
 }
