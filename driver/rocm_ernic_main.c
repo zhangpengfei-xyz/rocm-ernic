@@ -1322,10 +1322,6 @@ static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
     dev_info(&pdev->dev, "RDMA driver detaching from Ethernet device\n");
     pr_info("rocm_ernic_rdma: Detaching from PCI device %s\n", pci_name(pdev));
 
-    /* Disable interrupts FIRST to prevent interrupt handler from accessing
-     * device during cleanup */
-    rocm_ernic_disable_intrs(dev);
-
     unregister_netdevice_notifier(&dev->nb_netdev);
     dev->nb_netdev.notifier_call = NULL;
 
@@ -1347,20 +1343,24 @@ static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
      * that might reference the netdev have completed */
     msleep(50);
 
-    /* Release netdev BEFORE unregistering IB device to avoid hang.
-     * The IB device is already disconnected, so it's safe to release the
-     * netdev. This prevents ib_unregister_device from triggering callbacks that
-     * might reference the netdev. */
-    rocm_ernic_release_netdev(dev);
-
-    /* Unregister IB device - this will clean up remaining IB references */
+    /*
+     * Keep command-completion interrupts enabled while unregistering the IB device.
+     * ib_unregister_device() destroys the kernel GSI QP, CQ, MR and PD through AdminQ,
+     * and every command waits for MSI-X vector 0.
+     *
+     * Keep our netdev reference until that cleanup is complete as well.
+     * The GID delete callback uses it to distinguish a local-only dummy/loopback GID
+     * from a server-side binding.
+     */
     ib_unregister_device(&dev->ib_dev);
+    rocm_ernic_release_netdev(dev);
 
     mutex_lock(&rocm_ernic_device_list_lock);
     list_del(&dev->device_link);
     mutex_unlock(&rocm_ernic_device_list_lock);
 
-    /* Interrupts already disabled above */
+    /* No more AdminQ users remain, so command interrupts can now be masked. */
+    rocm_ernic_disable_intrs(dev);
     rocm_ernic_free_irq(dev);
     pci_free_irq_vectors(pdev);
 
