@@ -94,6 +94,7 @@ static DEFINE_MUTEX(rocm_ernic_device_list_lock);
 static LIST_HEAD(rocm_ernic_device_list);
 static struct workqueue_struct *event_wq;
 static struct workqueue_struct *probe_wq;
+static bool rocm_ernic_exiting;
 
 /* Default-off: the ad-hoc dummy netdev used for mesh testing was crashing
  * some guest kernels. Keep it opt-in so we fall back to the safer loopback
@@ -1325,7 +1326,8 @@ static int rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
     int ret;
 
     mutex_lock(&rocm_ernic_lifecycle_lock);
-    ret = __rocm_ernic_attach_to_eth_dev(pdev);
+    ret = rocm_ernic_exiting ? -ESHUTDOWN
+                             : __rocm_ernic_attach_to_eth_dev(pdev);
     mutex_unlock(&rocm_ernic_lifecycle_lock);
 
     return ret;
@@ -1430,7 +1432,7 @@ static int rocm_ernic_eth_device_event(struct notifier_block *nb,
 
     (void)nb;
 
-    if (event == ROCM_ERNIC_ETH_EVENT_ADD)
+    if (event == ROCM_ERNIC_ETH_EVENT_ADD && !READ_ONCE(rocm_ernic_exiting))
         rocm_ernic_attach_to_eth_dev(pdev);
     else if (event == ROCM_ERNIC_ETH_EVENT_REMOVE)
         rocm_ernic_detach_from_eth_dev(pdev);
@@ -1522,6 +1524,8 @@ static int __init rocm_ernic_init(void)
 {
     int ret;
 
+    rocm_ernic_exiting = false;
+
     event_wq = alloc_ordered_workqueue("rocm_ernic_event_wq", WQ_MEM_RECLAIM);
     if (!event_wq)
         return -ENOMEM;
@@ -1551,6 +1555,9 @@ static void __exit rocm_ernic_cleanup(void)
     struct rocm_ernic_dev *dev, *tmp;
     struct pci_dev *pdev;
 
+    /* Reject new hot-adds before draining already queued attach work. */
+    WRITE_ONCE(rocm_ernic_exiting, true);
+
     /* Finish any attach already queued before beginning teardown. */
     if (probe_wq) {
         destroy_workqueue(probe_wq);
@@ -1568,13 +1575,14 @@ static void __exit rocm_ernic_cleanup(void)
         mutex_lock(&rocm_ernic_device_list_lock);
         list_for_each_entry_safe(dev, tmp, &rocm_ernic_device_list, device_link)
         {
-            pdev = dev->pdev;
+            pdev = pci_dev_get(dev->pdev);
             break;
         }
         mutex_unlock(&rocm_ernic_device_list_lock);
         if (!pdev)
             break;
         rocm_ernic_detach_from_eth_dev(pdev);
+        pci_dev_put(pdev);
     }
 
     /*
