@@ -9,6 +9,7 @@
 #define __ROCM_ERNIC_ETH_H__
 
 #include <linux/netdevice.h>
+#include <linux/notifier.h>
 #include <linux/pci.h>
 #include <linux/dma-mapping.h>
 
@@ -65,7 +66,14 @@ struct rocm_ernic_eth_dev {
     void *priv;
 };
 
+enum rocm_ernic_eth_event {
+    ROCM_ERNIC_ETH_EVENT_ADD = 1,
+    ROCM_ERNIC_ETH_EVENT_REMOVE,
+};
+
 /* Exported API for RDMA driver */
+int rocm_ernic_eth_register_notifier(struct notifier_block *nb);
+int rocm_ernic_eth_unregister_notifier(struct notifier_block *nb);
 struct rocm_ernic_eth_dev *rocm_ernic_eth_get_dev(struct pci_dev *pdev);
 struct net_device *rocm_ernic_eth_get_netdev(struct pci_dev *pdev);
 void __iomem *rocm_ernic_eth_get_regs(struct pci_dev *pdev);

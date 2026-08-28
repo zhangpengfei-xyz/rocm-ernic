@@ -89,6 +89,7 @@ static void rocm_ernic_release_netdev(struct rocm_ernic_dev *dev)
 #define PCI_IRQ_INTX PCI_IRQ_LEGACY
 #endif
 
+static DEFINE_MUTEX(rocm_ernic_lifecycle_lock);
 static DEFINE_MUTEX(rocm_ernic_device_list_lock);
 static LIST_HEAD(rocm_ernic_device_list);
 static struct workqueue_struct *event_wq;
@@ -670,13 +671,18 @@ static irqreturn_t rocm_ernic_intrx_handler(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
-static void rocm_ernic_free_irq(struct rocm_ernic_dev *dev)
+static void rocm_ernic_free_intrs(struct rocm_ernic_dev *dev)
 {
     int i;
+
+    if (!dev->nr_vectors)
+        return;
 
     dev_dbg(&dev->pdev->dev, "freeing interrupts\n");
     for (i = 0; i < dev->nr_vectors; i++)
         free_irq(pci_irq_vector(dev->pdev, i), dev);
+    pci_free_irq_vectors(dev->pdev);
+    dev->nr_vectors = 0;
 }
 
 static void rocm_ernic_enable_intrs(struct rocm_ernic_dev *dev)
@@ -730,6 +736,7 @@ free_irqs:
         free_irq(pci_irq_vector(dev->pdev, i), dev);
 out_free_vectors:
     pci_free_irq_vectors(pdev);
+    dev->nr_vectors = 0;
     return ret;
 }
 
@@ -1007,9 +1014,10 @@ static int rocm_ernic_netdevice_event(struct notifier_block *this,
 }
 
 /* Attach RDMA driver to an Ethernet driver device */
-static int rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
+static int __rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
 {
     struct rocm_ernic_dev *dev;
+    struct rocm_ernic_dev *existing;
     struct rocm_ernic_eth_dev *eth_dev;
     struct net_device *netdev;
     void __iomem *regs;
@@ -1017,6 +1025,17 @@ static int rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
     unsigned long uar_start;
     unsigned long uar_len;
     dma_addr_t slot_dma = 0;
+
+    /* A scan and a hot-add notification may discover the same device. */
+    mutex_lock(&rocm_ernic_device_list_lock);
+    list_for_each_entry(existing, &rocm_ernic_device_list, device_link)
+    {
+        if (existing->pdev == pdev) {
+            mutex_unlock(&rocm_ernic_device_list_lock);
+            return 0;
+        }
+    }
+    mutex_unlock(&rocm_ernic_device_list_lock);
 
     dev_info(&pdev->dev, "RDMA driver attaching to Ethernet device %s\n",
              pci_name(pdev));
@@ -1053,7 +1072,7 @@ static int rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
     if (ret)
         goto err_free_device;
 
-    dev->pdev = pdev;
+    dev->pdev = pci_dev_get(pdev);
     dev->netdev = netdev;
     dev->regs = regs;
     dev_hold(netdev); /* Hold reference to Ethernet driver's netdev */
@@ -1277,8 +1296,7 @@ err_disable_intr:
 err_free_uar_table:
     rocm_ernic_uar_table_cleanup(dev);
 err_free_intrs:
-    rocm_ernic_free_irq(dev);
-    pci_free_irq_vectors(pdev);
+    rocm_ernic_free_intrs(dev);
 err_free_cq_ring:
     rocm_ernic_release_netdev(dev);
     rocm_ernic_page_dir_cleanup(dev, &dev->cq_pdir);
@@ -1296,11 +1314,24 @@ err_free_device:
     mutex_lock(&rocm_ernic_device_list_lock);
     list_del(&dev->device_link);
     mutex_unlock(&rocm_ernic_device_list_lock);
+    if (dev->pdev)
+        pci_dev_put(dev->pdev);
     ib_dealloc_device(&dev->ib_dev);
     return ret;
 }
 
-static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
+static int rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
+{
+    int ret;
+
+    mutex_lock(&rocm_ernic_lifecycle_lock);
+    ret = __rocm_ernic_attach_to_eth_dev(pdev);
+    mutex_unlock(&rocm_ernic_lifecycle_lock);
+
+    return ret;
+}
+
+static void __rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
 {
     struct rocm_ernic_dev *dev = NULL;
     struct rocm_ernic_dev *tmp;
@@ -1361,8 +1392,7 @@ static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
 
     /* No more AdminQ users remain, so command interrupts can now be masked. */
     rocm_ernic_disable_intrs(dev);
-    rocm_ernic_free_irq(dev);
-    pci_free_irq_vectors(pdev);
+    rocm_ernic_free_intrs(dev);
 
     /* Deactivate rocm_ernic device */
     rocm_ernic_write_reg(dev, ROCM_ERNIC_REG_CTL, ROCM_ERNIC_DEVICE_CTL_RESET);
@@ -1382,8 +1412,35 @@ static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
     /* Note: netdev is owned by Ethernet driver, we just release our reference
      */
 
+    pci_dev_put(dev->pdev);
     ib_dealloc_device(&dev->ib_dev);
 }
+
+static void rocm_ernic_detach_from_eth_dev(struct pci_dev *pdev)
+{
+    mutex_lock(&rocm_ernic_lifecycle_lock);
+    __rocm_ernic_detach_from_eth_dev(pdev);
+    mutex_unlock(&rocm_ernic_lifecycle_lock);
+}
+
+static int rocm_ernic_eth_device_event(struct notifier_block *nb,
+                                       unsigned long event, void *data)
+{
+    struct pci_dev *pdev = data;
+
+    (void)nb;
+
+    if (event == ROCM_ERNIC_ETH_EVENT_ADD)
+        rocm_ernic_attach_to_eth_dev(pdev);
+    else if (event == ROCM_ERNIC_ETH_EVENT_REMOVE)
+        rocm_ernic_detach_from_eth_dev(pdev);
+
+    return NOTIFY_OK;
+}
+
+static struct notifier_block rocm_ernic_eth_device_nb = {
+    .notifier_call = rocm_ernic_eth_device_event,
+};
 
 struct rocm_ernic_probe_work {
     struct work_struct work;
@@ -1463,6 +1520,8 @@ static void rocm_ernic_scan_for_devices(void)
 
 static int __init rocm_ernic_init(void)
 {
+    int ret;
+
     event_wq = alloc_ordered_workqueue("rocm_ernic_event_wq", WQ_MEM_RECLAIM);
     if (!event_wq)
         return -ENOMEM;
@@ -1471,6 +1530,13 @@ static int __init rocm_ernic_init(void)
     if (!probe_wq) {
         destroy_workqueue(event_wq);
         return -ENOMEM;
+    }
+
+    ret = rocm_ernic_eth_register_notifier(&rocm_ernic_eth_device_nb);
+    if (ret) {
+        destroy_workqueue(probe_wq);
+        destroy_workqueue(event_wq);
+        return ret;
     }
 
     /* Scan for existing Ethernet devices */
@@ -1484,6 +1550,12 @@ static void __exit rocm_ernic_cleanup(void)
 {
     struct rocm_ernic_dev *dev, *tmp;
     struct pci_dev *pdev;
+
+    /* Finish any attach already queued before beginning teardown. */
+    if (probe_wq) {
+        destroy_workqueue(probe_wq);
+        probe_wq = NULL;
+    }
 
     /*
      * rocm_ernic_detach_from_eth_dev takes the same
@@ -1505,8 +1577,13 @@ static void __exit rocm_ernic_cleanup(void)
         rocm_ernic_detach_from_eth_dev(pdev);
     }
 
-    if (probe_wq)
-        destroy_workqueue(probe_wq);
+    /*
+     * Keep the remove notifier registered until every RDMA device is gone.
+     * Unregistering a blocking notifier also waits for an in-flight hot-remove callback,
+     * so no PCI teardown can still be executing module text after this point.
+     */
+    rocm_ernic_eth_unregister_notifier(&rocm_ernic_eth_device_nb);
+
     if (event_wq)
         destroy_workqueue(event_wq);
 

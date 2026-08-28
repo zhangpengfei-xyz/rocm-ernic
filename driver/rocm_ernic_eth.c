@@ -641,6 +641,7 @@ static const struct net_device_ops rocm_ernic_eth_netdev_ops = {
 /* List of Ethernet devices */
 static LIST_HEAD(rocm_ernic_eth_dev_list);
 static DEFINE_MUTEX(rocm_ernic_eth_dev_list_lock);
+static BLOCKING_NOTIFIER_HEAD(rocm_ernic_eth_notifier);
 
 static struct net_device *rocm_ernic_eth_create_netdev(
     struct rocm_ernic_eth_dev *eth_dev, const char *name_fmt)
@@ -749,6 +750,18 @@ static void rocm_ernic_eth_release_netdev(struct rocm_ernic_eth_dev *eth_dev)
 }
 
 /* Exported API for RDMA driver */
+int rocm_ernic_eth_register_notifier(struct notifier_block *nb)
+{
+    return blocking_notifier_chain_register(&rocm_ernic_eth_notifier, nb);
+}
+EXPORT_SYMBOL(rocm_ernic_eth_register_notifier);
+
+int rocm_ernic_eth_unregister_notifier(struct notifier_block *nb)
+{
+    return blocking_notifier_chain_unregister(&rocm_ernic_eth_notifier, nb);
+}
+EXPORT_SYMBOL(rocm_ernic_eth_unregister_notifier);
+
 struct rocm_ernic_eth_dev *rocm_ernic_eth_get_dev(struct pci_dev *pdev)
 {
     struct rocm_ernic_eth_dev *eth_dev;
@@ -938,6 +951,9 @@ static int rocm_ernic_eth_pci_probe(struct pci_dev *pdev,
     dev_info(&pdev->dev, "Ethernet driver initialized (netdev=%s)\n",
              eth_dev->netdev->name);
 
+    blocking_notifier_call_chain(&rocm_ernic_eth_notifier,
+                                 ROCM_ERNIC_ETH_EVENT_ADD, pdev);
+
     return 0;
 
 err_unmap_regs:
@@ -960,6 +976,14 @@ static void rocm_ernic_eth_pci_remove(struct pci_dev *pdev)
         return;
 
     dev_info(&pdev->dev, "Ethernet driver removing\n");
+
+    /*
+     * The RDMA companion owns MSI-X vectors and DMA allocations on this PCI device.
+     * Teardown those synchronously before the PCI core releases
+     * the MSI domain and BARs underneath the Ethernet driver.
+     */
+    blocking_notifier_call_chain(&rocm_ernic_eth_notifier,
+                                 ROCM_ERNIC_ETH_EVENT_REMOVE, pdev);
 
     /* Stop the device first to prevent interrupts from accessing freed buffers
      */
