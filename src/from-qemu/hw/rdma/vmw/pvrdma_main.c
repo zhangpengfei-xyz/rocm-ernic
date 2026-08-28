@@ -568,7 +568,8 @@ static void init_dsr_dev_caps(PVRDMADev *dev)
     /* Full memory barrier before continuing with other caps */
     __sync_synchronize();
 
-    dsr->caps.max_uar = RDMA_BAR2_UAR_SIZE;
+    /* max_uar is a context count, whereas RDMA_BAR2_UAR_SIZE is bytes. */
+    dsr->caps.max_uar = MAX_UCS;
     dsr->caps.max_mr_size = dev->dev_attr.max_mr_size;
     dsr->caps.max_qp = dev->dev_attr.max_qp;
     dsr->caps.max_qp_wr = dev->dev_attr.max_qp_wr;

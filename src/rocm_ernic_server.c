@@ -218,7 +218,7 @@ static ssize_t bar2_access(vfu_ctx_t *vfu_ctx, char *buf, size_t count,
     rocm_ernic_dev_t *dev = vfu_get_private(vfu_ctx);
     uint32_t val;
 
-    if ((size_t)offset + count > RDMA_BAR2_UAR_SIZE * sizeof(uint32_t)) {
+    if ((size_t)offset + count > RDMA_BAR2_UAR_SIZE) {
         vfu_log(vfu_ctx, LOG_ERR,
                 "BAR2 access out of bounds: offset=%#lx count=%zu",
                 (unsigned long)offset, count);
@@ -429,7 +429,7 @@ static int setup_bars(vfu_ctx_t *vfu_ctx, rocm_ernic_dev_t *dev)
 
     /* Setup BAR2: UAR - User Access Region (variable size, memory-mapped) */
     ret = vfu_setup_region(vfu_ctx, VFU_PCI_DEV_BAR2_REGION_IDX,
-                           RDMA_BAR2_UAR_SIZE * sizeof(uint32_t), bar2_access,
+                           RDMA_BAR2_UAR_SIZE, bar2_access,
                            VFU_REGION_FLAG_RW | VFU_REGION_FLAG_MEM, NULL, 0,
                            -1, 0);
     if (ret < 0) {
@@ -439,7 +439,7 @@ static int setup_bars(vfu_ctx_t *vfu_ctx, rocm_ernic_dev_t *dev)
     vfu_log(vfu_ctx, LOG_INFO, "BARs configured: BAR0=%zu BAR1=%zu BAR2=%zu",
             (size_t)RDMA_BAR0_MSIX_SIZE,
             (size_t)(RDMA_BAR1_REGS_SIZE * sizeof(uint32_t)),
-            (size_t)(RDMA_BAR2_UAR_SIZE * sizeof(uint32_t)));
+            (size_t)RDMA_BAR2_UAR_SIZE);
 
     return 0;
 }
