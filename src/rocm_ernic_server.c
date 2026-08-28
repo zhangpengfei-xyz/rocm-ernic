@@ -38,6 +38,7 @@
 /* Internal headers */
 #include "rocm_ernic_internal.h"
 #include "rocm_ernic_compat.h"
+#include "hw/pci/pci.h"
 
 /* AMD ROCm ERNIC device IDs (for vfio-user).
  * 0x1484 = GPP Bridge, 0x1485 = Reserved SPP, 0x1486 = CCP/PSP, 0x1487 = HD
@@ -318,8 +319,14 @@ static void dma_register_cb(vfu_ctx_t *vfu_ctx, vfu_dma_info_t *info)
  */
 static void dma_unregister_cb(vfu_ctx_t *vfu_ctx, vfu_dma_info_t *info)
 {
+    rocm_ernic_dev_t *dev = vfu_get_private(vfu_ctx);
+
     vfu_log(vfu_ctx, LOG_DEBUG, "DMA region unregistered: iova=%p len=%zu",
             info->iova.iov_base, info->iova.iov_len);
+
+    pci_dma_release(PCI_DEVICE(dev->pvrdma_handle),
+                    (uint64_t)(uintptr_t)info->iova.iov_base,
+                    info->iova.iov_len);
 }
 
 

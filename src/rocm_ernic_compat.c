@@ -912,6 +912,44 @@ void pci_dma_unmap(PCIDevice *dev, void *buffer, dma_addr_t len, int dir,
         buffer);
 }
 
+void pci_dma_release(PCIDevice *dev, dma_addr_t guest_addr, dma_addr_t len)
+{
+    (void)dev;
+
+    rdma_info_report("=== DMA RELEASE: guest=%#lx len=%zu ===", guest_addr,
+                     (size_t)len);
+
+    for (int i = num_dma_mappings - 1; i >= 0; i--) {
+        dma_mapping_t *mapping = &dma_mappings[i];
+
+        if (mapping->guest_addr < guest_addr ||
+            mapping->guest_addr >= guest_addr + len) {
+            continue;
+        }
+
+        rdma_info_report("DMA release: Found mapping #%d (guest=%#lx)", i,
+                         mapping->guest_addr);
+
+        /* The SGL may already have been returned by pvrdma_dsr_flush(). */
+        if (mapping->host_addr) {
+            vfu_sgl_put(mapping->vfu_ctx, mapping->sg, &mapping->iov, 1);
+        }
+
+        free(mapping->sg);
+        mapping->sg = NULL;
+
+        for (int j = i; j < num_dma_mappings - 1; j++) {
+            dma_mappings[j] = dma_mappings[j + 1];
+        }
+        num_dma_mappings--;
+        memset(&dma_mappings[num_dma_mappings], 0, sizeof(dma_mappings[0]));
+
+        rdma_info_report(
+            "DMA release: Released and removed mapping (now %d mappings)",
+            num_dma_mappings);
+    }
+}
+
 /*
  * Interrupt Handling (called FROM QEMU code)
  */
