@@ -342,7 +342,91 @@ grep 'Data MD5:' $E2E_DIR/server-$RUN_NAME.log
   $E2E_DIR/server-$RUN_NAME.log
 ```
 
-## 8. 停止顺序和通过标准
+## 8. 修复问题的专项回归
+
+完成基本测试后，对 BAR 长度、AdminQ 卸载和 MSI-X
+热插拔修复执行以下专项回归。每个卸载或热插拔场景都应在新一轮
+server 日志中单独验证，以免混入前一轮的告警。
+
+加载驱动后验证 BAR2 是 `512 × 4 KiB = 2 MiB`，并且三个 MSI-X vector 已启用：
+
+```bash
+ERNIC_BDF=$(lspci -Dnn -d 1022:8000 | awk 'NR == 1 { print $1 }')
+lspci -vv -s $ERNIC_BDF | tee $WORK_DIR/ernic-lspci.log
+grep -Eq 'Region 2:.*\[size=2M\]' $WORK_DIR/ernic-lspci.log
+grep -Eq 'MSI-X: Enable\+ Count=3' $WORK_DIR/ernic-lspci.log
+```
+
+正常卸载场景从嵌套 VM 内执行。测试前记录时间，卸载必须在 5 秒内完成，
+且 AdminQ 清理期间不得出现 command timeout 或内核严重告警：
+
+```bash
+UNLOAD_TIME=$(date --iso-8601=seconds)
+SECONDS=0
+rmmod rocm_ernic_rdma rocm_ernic_eth
+test $SECONDS -lt 5
+
+! journalctl -k --since $UNLOAD_TIME --no-pager | \
+  grep -E 'command timeout|WARNING:|BUG:|Oops:|general protection fault'
+```
+
+在外层确认 server 已处理 QP、CQ、MR 和 PD 的 AdminQ 清理请求，
+并为响应触发了 MSI-X vector 0：
+
+```bash
+for CMD in DESTROY_QP DESTROY_CQ DESTROY_MR DESTROY_PD; do
+  grep -Eq "ADMINQ\[[0-9]+\] RSP cmd=[0-9]+\($CMD\).*err=0" \
+    $E2E_DIR/server-$RUN_NAME.log
+done
+grep -F 'Successfully triggered interrupt vector 0' \
+  $E2E_DIR/server-$RUN_NAME.log
+```
+
+卸载完成后，在外层执行 `device_del` 并重新启动 server。
+为验证 ADD notifier，先在设备不存在时加载模块，再热插入设备：
+
+```bash
+vm_ssh "modprobe ib_uverbs
+insmod $REPO_DIR/driver/rocm_ernic_eth.ko
+insmod $REPO_DIR/driver/rocm_ernic_rdma.ko"
+attach_ernic
+until vm_ssh 'rdma dev show | grep -q rocep'; do sleep 1; done
+```
+
+验证模块保持加载时的 PCI 热拔出：在外层直接删除设备，不要先卸载驱动：
+
+```bash
+HOTUNPLUG_TIME=$(vm_ssh date --iso-8601=seconds)
+detach_ernic
+
+vm_ssh '! lspci -n -d 1022:8000 | grep -q 1022:8000 &&
+! rdma dev show | grep -q rocep'
+vm_ssh "! journalctl -k --since '$HOTUNPLUG_TIME' --no-pager | \
+  grep -E 'irq_domain_remove|msi_device_data_release|pci_disable_msix|WARNING:|BUG:|Oops:'"
+```
+
+最后重新启动 server、插入设备并加载两个模块，在外层同时发起 `rmmod` 和 QMP `device_del`：
+
+```bash
+RACE_TIME=$(vm_ssh date --iso-8601=seconds)
+vm_ssh 'rmmod rocm_ernic_rdma rocm_ernic_eth' &
+RMMOD_PID=$!
+qmp '{"execute":"device_del","arguments":{"id":"ernic0"}}' &
+QMP_PID=$!
+wait $RMMOD_PID
+wait $QMP_PID
+until ! device_present; do sleep 1; done
+
+vm_ssh "! journalctl -k --since '$RACE_TIME' --no-pager | \
+  grep -E 'irq_domain_remove|msi_device_data_release|pci_disable_msix|WARNING:|BUG:|Oops:'"
+```
+
+两种热插拔场景中，QMP 都应返回 `"return": {}`，QEMU 和 VM 保持运行，
+guest 中不再存在 ERNIC PCI/RDMA 设备，server 可正常退出。
+
+## 9. 停止顺序和通过标准
+
+注意如果已执行过并发卸载热拔测试，则驱动或设备可能已不存在。
 
 测试结束后先卸载驱动并通过 QMP 拔出设备，再在服务端终端按 `Ctrl-C`：
 
@@ -360,4 +444,5 @@ VM 可以保持运行；不再使用时执行 `vm_ssh systemctl poweroff`。
 - 服务端单元测试和两个 VM 测试通过；
 - 七种数据模式和 MD5 回归通过；
 - sysfs loopback 开关可恢复为 0，内核没有新增严重告警；
+- BAR2 长度、MSI-X、AdminQ 卸载及热拔插专项回归通过；
 - `device_del` 后 QEMU 和 VM 保持运行，服务端正常退出且没有崩溃。
