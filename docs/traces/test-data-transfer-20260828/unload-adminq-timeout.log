@@ -1,0 +1,18 @@
+INFO: rdma: BAR1 WRITE: offset=0x1c size=4 value=0xffffffff
+INFO: rdma: ADMINQ[32] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[32] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[32] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: ADMINQ[33] REQ cmd=12(DESTROY_QP) response=0
+INFO: rdma: ADMINQ[33] REQ DESTROY_QP qp=100
+INFO: rdma: ADMINQ[33] RSP cmd=12(DESTROY_QP) response=0 ack=0x8000000c err=0
+INFO: rdma: ADMINQ[34] REQ cmd=8(DESTROY_CQ) response=0
+INFO: rdma: ADMINQ[34] REQ DESTROY_CQ cq=0
+INFO: rdma: ADMINQ[34] RSP cmd=8(DESTROY_CQ) response=0 ack=0x80000008 err=0
+INFO: rdma: ADMINQ[35] REQ cmd=5(DESTROY_MR) response=0
+INFO: rdma: ADMINQ[35] REQ DESTROY_MR mr=0
+INFO: rdma: ADMINQ[35] RSP cmd=5(DESTROY_MR) response=0 ack=0x80000005 err=0
+INFO: rdma: ADMINQ[36] REQ cmd=3(DESTROY_PD) response=0
+INFO: rdma: ADMINQ[36] REQ DESTROY_PD pd=0
+INFO: rdma: ADMINQ[36] RSP cmd=3(DESTROY_PD) response=0 ack=0x80000003 err=0
+INFO: rdma: ADMINQ[37] REQ cmd=16(DESTROY_BIND) response=0
+INFO: rdma: ADMINQ[37] RSP cmd=16(DESTROY_BIND) response=0 ack=0x80000010 err=22

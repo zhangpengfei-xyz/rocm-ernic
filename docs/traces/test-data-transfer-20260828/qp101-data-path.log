@@ -1,0 +1,77 @@
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 1024 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=1 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=1 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=100 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=100 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=101 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=101 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=102 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=102 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=103 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=103 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=104 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=104 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 64 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=200 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=200 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 256 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=201 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=201 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 1024 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=202 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=202 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 2048 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=203 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=203 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: Loopback: SEND QP 101: 4096 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=204 qp=101 opcode=128 status=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=204 qp=101 opcode=0 status=0

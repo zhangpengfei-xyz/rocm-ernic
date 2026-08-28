@@ -1,0 +1,55 @@
+=== ROCm ERNIC Statistics ===
+Instance:
+  socket      : /root/Codex/rocm-ernic-e2e/vfio-user.sock
+  backend     : loopback:mode=preserve
+  pci         : 0x1022:0x8000
+  mac         : 72:6f:63:6d:2d:6e
+  connection  : disconnected (lost connection)
+
+Write count: 162
+
+Device Statistics:
+  commands                : 37
+  bar0_reads              : 0
+  bar0_writes             : 0
+  regs_reads              : 68
+  regs_writes             : 45
+  uar_reads               : 0
+  uar_writes              : 536
+  mmio_reads_total        : 68
+  mmio_writes_total       : 581
+  interrupts              : 31
+  flr_reset_count         : 0
+  total_bytes_sent        : 11072
+  total_bytes_received    : 11072
+  total_bytes_rdma_read   : 0
+  total_bytes_rdma_write  : 0
+
+Per-QP Statistics:
+  QP 100:
+    doorbell_send  : 0
+    doorbell_recv  : 512
+    doorbell_srq   : 0
+    wqes_processed : 213
+    cqes_posted    : 0
+    continuations  : 51
+    bytes_sent     : 0
+    bytes_received : 0
+    bytes_rdma_read : 0
+    bytes_rdma_write : 0
+    WQEs by opcode:
+      SEND                : 213
+
+  QP 101:
+    doorbell_send  : 11
+    doorbell_recv  : 11
+    doorbell_srq   : 0
+    wqes_processed : 11
+    cqes_posted    : 22
+    continuations  : 0
+    bytes_sent     : 11072
+    bytes_received : 11072
+    bytes_rdma_read : 0
+    bytes_rdma_write : 0
+    WQEs by opcode:
+      SEND                : 11
