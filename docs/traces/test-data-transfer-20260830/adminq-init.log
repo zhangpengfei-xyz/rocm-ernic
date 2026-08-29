@@ -1,0 +1,46 @@
+INFO: rdma: ADMINQ[1] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[1] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[1] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: ADMINQ[2] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[2] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[2] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: ADMINQ[3] REQ cmd=1(QUERY_PKEY) response=0
+INFO: rdma: ADMINQ[3] REQ QUERY_PKEY port=1 index=0
+INFO: rdma: ADMINQ[3] RSP cmd=1(QUERY_PKEY) response=0 ack=0x80000001 err=0
+INFO: rdma: ADMINQ[4] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[4] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[4] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: ADMINQ[5] REQ cmd=2(CREATE_PD) response=0
+INFO: rdma: ADMINQ[5] REQ CREATE_PD ctx=0
+INFO: rdma: ADMINQ[5] RSP cmd=2(CREATE_PD) response=0 ack=0x80000002 err=0
+INFO: rdma: ADMINQ[5] RSP CREATE_PD pd=0
+INFO: rdma: ADMINQ[6] REQ cmd=4(CREATE_MR) response=0
+INFO: rdma: ADMINQ[6] REQ CREATE_MR pd=0 start=0 length=0 pdir_dma=0 access=0x1 flags=0x1 nchunks=0
+INFO: rdma: ADMINQ[6] RSP cmd=4(CREATE_MR) response=0 ack=0x80000004 err=0
+INFO: rdma: ADMINQ[6] RSP CREATE_MR mr=0 lkey=0x1 rkey=0xffffffff
+INFO: rdma: ADMINQ[7] REQ cmd=6(CREATE_CQ) response=0
+INFO: rdma: ADMINQ[7] REQ CREATE_CQ ctx=0 cqe=1024 nchunks=17 pdir_dma=0x106be8000
+INFO: rdma: ADMINQ[7] RSP cmd=6(CREATE_CQ) response=0 ack=0x80000006 err=0
+INFO: rdma: ADMINQ[7] RSP CREATE_CQ cq=0 cqe=1024
+INFO: rdma: ADMINQ[8] REQ cmd=9(CREATE_QP) response=0
+INFO: rdma: ADMINQ[8] REQ CREATE_QP pd=0 scq=0 rcq=0 srq=0 send_wr=128 recv_wr=512 send_sge=2 recv_sge=1 inline=0 sq_sig_all=1 qp_type=1 is_srq=0 chunks=9/4 pdir_dma=0x104fcb000
+INFO: rdma: ADMINQ[8] RSP cmd=9(CREATE_QP) response=0 ack=0x80000009 err=0
+INFO: rdma: ADMINQ[8] RSP CREATE_QP qpn=100 send_wr=128 recv_wr=512 send_sge=2 recv_sge=1 inline=0
+INFO: rdma: ADMINQ[9] REQ cmd=1(QUERY_PKEY) response=0
+INFO: rdma: ADMINQ[9] REQ QUERY_PKEY port=1 index=0
+INFO: rdma: ADMINQ[9] RSP cmd=1(QUERY_PKEY) response=0 ack=0x80000001 err=0
+INFO: rdma: ADMINQ[10] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[10] REQ MODIFY_QP qp=100 mask=0x51 state=1 pkey=0 port=0 access=0 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: ADMINQ[10] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[11] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[11] REQ MODIFY_QP qp=100 mask=0x1 state=2 pkey=0 port=0 access=0 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: ADMINQ[11] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[12] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[12] REQ MODIFY_QP qp=100 mask=0x10001 state=3 pkey=0 port=0 access=0 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: ADMINQ[12] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[13] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[13] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[13] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: ADMINQ[14] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[14] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[14] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0

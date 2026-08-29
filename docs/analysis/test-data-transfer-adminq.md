@@ -2,7 +2,7 @@
 
 ## 1. 测试范围和结论
 
-本报告按 `DEVELOPMENT.md` 在 `debian-13-dev` 中启动 vfio-user server，并在嵌套 VM 中重新构建、加载驱动和本仓库 rdma-core provider 后运行 `test_data_transfer`。本轮记录对应提交 `77f883d2ccd13d980a63f635e1ed4da58601ccfa`，后端为 `loopback:mode=preserve`。
+本报告按 `DEVELOPMENT.md` 在 `debian-13-dev` 中启动 vfio-user server，并在嵌套 VM 中重新构建、加载驱动和本仓库 rdma-core provider 后运行 `test_data_transfer`。本轮记录对应提交 `d887bffd9d9029074fc05f4306ecfc87fcdcdbbd`，后端为 `loopback:mode=preserve`。
 
 设备的三个名字分别代表不同层次：QMP 设备 ID 是 `ernic0`，PCI function 是 `0000:00:0a.0`，RDMA device 是 `rocep0s10`；网络设备是 `ens10`。
 
@@ -11,9 +11,9 @@
 - 单次传输、5 次连续传输和 64/256/1024/2048/4096 字节边界传输全部通过，合计 11 次 SEND、11 次 RECV、22 个 CQE，双向各 11072 字节，测试打印 `ALL TESTS PASSED`。
 - 驱动初始化产生 AdminQ #1～#14；`setup_resources()` 产生 #15～#24 共 10 条；`cleanup_resources()` 产生 #25～#31 共 7 条；驱动卸载产生 #32～#36 共 5 条。server 最终统计 `commands=36`、`interrupts=36`，所有 response 的 `err=0`。
 - `ibv_post_recv()`、`ibv_post_send()` 和 `ibv_poll_cq()` 不走 AdminQ。前两者写共享 WQE ring 后敲 BAR2 doorbell，后者直接读取共享 CQ ring。
-- BAR2 已正确暴露为 `512 × 4 KiB = 2 MiB`。正常卸载耗时 404 ms，没有 AdminQ timeout、`DESTROY_BIND`、GID 注销失败、MSI 警告、WARN/Oops 或调用栈。
+- BAR2 已正确暴露为 `512 × 4 KiB = 2 MiB`。正常卸载耗时 328 ms，没有 AdminQ timeout、`DESTROY_BIND`、GID 注销失败、MSI 警告、WARN/Oops 或调用栈。
 
-本轮可复核证据统一位于 `docs/traces/test-data-transfer-20260829/`；旧的 `20260828` 目录只保留为问题修复前的历史记录，不再作为本文结论依据。
+本轮可复核证据统一位于 `docs/traces/test-data-transfer-20260830/`；`20260828` 和 `20260829` 目录只保留为历史记录，不再作为本文结论依据。
 
 ## 2. 一次运行的命令边界
 
@@ -44,7 +44,7 @@ VM 内 `lspci -Dvv -s 0000:00:0a.0` 和 sysfs `resource` 的实测结果为：
 | offset | 寄存器 | 方向 | 本轮用途/行为 |
 | --- | --- | --- | --- |
 | `0x00` | `VERSION` | R | server 返回硬件协议版本 17；因此 guest 使用旧版 create-QP response，`qp_handle=qpn` |
-| `0x04` | `DSRLOW` | W | DSR DMA 地址低 32 位；本轮写 `0x09af3000` |
+| `0x04` | `DSRLOW` | W | DSR DMA 地址低 32 位；本轮写 `0x021ac000` |
 | `0x08` | `DSRHIGH` | W | DSR DMA 地址高 32 位；本轮写 `0x1`，写入后 server 执行 `load_dsr()` |
 | `0x0c` | `CTL` | W | `ACTIVATE=0`、`UNQUIESCE=1`、`RESET=2`；加载时 activate，卸载时 reset |
 | `0x10` | `REQUEST` | W | AdminQ doorbell；每次 `rocm_ernic_cmd_post()` 写 0，值本身不编码命令 |
@@ -54,6 +54,21 @@ VM 内 `lspci -Dvv -s 0000:00:0a.0` 和 sysfs `resource` 的实测结果为：
 | `0x20/0x24` | `MACL/MACH` | R/W | MAC 地址低/高部分 |
 
 BAR1 只传控制信息，不承载 AdminQ payload。`REQUEST=0` 的 36 次写入与 36 条命令一一对应。
+
+BAR1 的 `0x28～0x64` 是同一 BAR 内的 Ethernet 寄存器组，不参与 AdminQ payload，但会计入 `regs_reads/regs_writes`：
+
+| offset | Ethernet 寄存器 | 行为 |
+| --- | --- | --- |
+| `0x28` | `ETH_CTL` | TX/RX enable 与软件 reset；reset 清 TX/RX head、tail 和 Ethernet ICR |
+| `0x2c` | `ETH_STATUS` | 读取时始终置 `LINK_UP` |
+| `0x30/0x34/0x38/0x3c/0x40` | `TX_BAL/BAH/LEN/HEAD/TAIL` | TX descriptor ring 的 DMA base、长度和生产/消费位置；写 TAIL 时若 ring 有效则处理待发送 descriptor |
+| `0x44/0x48/0x4c/0x50/0x54` | `RX_BAL/BAH/LEN/HEAD/TAIL` | RX descriptor ring 的 DMA base、长度和生产/消费位置 |
+| `0x58` | `ETH_ICR` | Ethernet interrupt cause，读后清零 |
+| `0x5c` | `ETH_IMR` | Ethernet cause enable bits；与 AdminQ 的全局 `IMR@0x1c` 不是同一寄存器 |
+| `0x60/0x64` | `ETH_MAC0/MAC1` | 只读 MAC bytes 0～3/4～5，写入被忽略 |
+| `0x68～0xfc` | reserved | 有 BAR1 backing storage，但当前没有设备行为 |
+
+本轮 44 次 BAR1 写可分解为：36 次 `REQUEST`、DSR LOW/HIGH 各 1 次、全局 IMR 开/关各 1 次、CTL activate/reset 各 1 次、`ETH_CTL=0` 和 `ETH_IMR=0` 各 1 次。当前 Ethernet TX completion 也复用 vector 0；本轮没有该事件，因此 vector 0 的 36 次触发仍全部对应 AdminQ。
 
 ### 3.2 BAR2 doorbell
 
@@ -80,9 +95,9 @@ AdminQ 是“固定 DMA slot + MMIO doorbell + MSI-X completion”，不是 BAR 
 
 | 对象 | Guest DMA | server 映射长度 | 作用 |
 | --- | ---: | ---: | --- |
-| DSR | `0x109af3000` | 288 bytes | capabilities、AdminQ slot 地址、async/CQ device ring 描述 |
-| request slot | `0x1601e4000` | 200 bytes | `union pvrdma_cmd_req`，guest 写/server 读 |
-| response slot | `0x109ae9000` | 192 bytes | `union pvrdma_cmd_resp`，server 写/guest 读 |
+| DSR | `0x1021ac000` | 288 bytes | capabilities、AdminQ slot 地址、async/CQ device ring 描述 |
+| request slot | `0x110a9d000` | 200 bytes | `union pvrdma_cmd_req`，guest 写/server 读 |
+| response slot | `0x10637a000` | 192 bytes | `union pvrdma_cmd_resp`，server 写/guest 读 |
 
 写 `DSRLOW/DSRHIGH` 后，`load_dsr()` 依次 DMA-map 上述三个对象以及 device event/CQ ring。各 CQ/MR/QP request 中的 `pdir_dma` 则是相应资源自己的两级页目录，和 AdminQ slot 是不同的 DMA 对象。
 
@@ -133,13 +148,13 @@ AdminQ 是“固定 DMA slot + MMIO doorbell + MSI-X completion”，不是 BAR 
 
 | 调用（本轮实参） | AdminQ request：直接/句柄/派生字段 | AdminQ response → kernel/provider → ibv 输出 |
 | --- | --- | --- |
-| `ibv_open_device(rocep0s10)` | #15 `CREATE_UC pfn=0xc0001`。设备名只用于选中 uverbs device，不进入 request；kernel UAR allocator 选择 BAR2 page 1，物理 PFN 才进入 request | `ctx_handle=0` 只保存在 kernel ucontext；`qp_tab_size` 由 kernel 从 DSR caps 另经 udata 返回。provider 分配并返回 `ibv_context *=0x562afa9370f0`，该指针不来自 AdminQ |
-| `ibv_alloc_pd(ctx)` | #16 `CREATE_PD ctx=0`；公开 context 指针转换为 kernel 保存的 `ctx_handle` | `pd_handle=1` → kernel `pd_handle/pdn=1` → provider `pdn=1`；公开返回 `ibv_pd *=0x562afa92d9d0` |
-| `ibv_create_cq(ctx,16,NULL,NULL,0)`（send） | #17 `CREATE_CQ ctx=0 cqe=16 nchunks=2 pdir_dma=0x140aea000`。`cqe` 经 power-of-two round（16 不变）；provider 创建 8192-byte buffer（4 KiB ring header + 16×64-byte CQE 向页对齐），kernel pin 后派生 2 pages 和页目录。`cq_context=NULL` 仅是用户态回调数据；`channel=NULL`、`comp_vector=0` 不进入 AdminQ | `cq_handle=1,cqe=16` → udata `cqn=1,ncqe=16`；`cqe_size=64` 是 kernel 本地常量，不是 AdminQ response。公开返回 `ibv_cq *=0x562afa937500,cqe=16` |
-| 同上（recv） | #18 字段相同，仅派生 `pdir_dma=0x105553000` | `cq_handle=2,cqe=16`；公开返回 `ibv_cq *=0x562afa937660,cqe=16` |
-| `ibv_reg_mr(pd,0x562afa9377c0,4096,LOCAL_WRITE)`（send） | #19 `CREATE_MR pd=1 start=0x562afa9377c0 length=4096 pdir_dma=0x161207000 access=0x1 flags=0 nchunks=2`。`pd/start/length/access` 对应实参；`flags=0` 表示普通 user MR；地址未页对齐，所以覆盖两个 4 KiB pages，kernel 派生 `nchunks/pdir_dma` | `mr_handle=1,lkey=2,rkey=0xffffffff`；handle 留在 kernel 供销毁，标准 uverbs response 形成公开 `ibv_mr *=0x562afa9397e0,lkey=2,rkey=0xffffffff` |
-| `ibv_reg_mr(pd,0x562afa9387d0,4096,LOCAL_WRITE)`（recv） | #20 同样映射，`pdir_dma=0x10557b000,nchunks=2` | `mr_handle=2,lkey=3,rkey=0xffffffff`；公开 `ibv_mr *=0x562afa939820` |
-| `ibv_create_qp(pd,&attr)` | #21 `CREATE_QP pd=1 scq=1 rcq=2 srq=0 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 inline=0 sq_sig_all=0 qp_type=2 is_srq=0 total_chunks=3 send_chunks=1 pdir_dma=0x10851d000`，另有 `lkey=0,access_flags=LOCAL_WRITE`。PD/CQ 指针转换为 handle；RC 枚举转换为 2；NULL SRQ 转成 0/false。provider 派生 SQ/RQ WQE size 和两个 mmap buffer，kernel pin 后形成 3 pages，其中 `tbl[0]` 是共享 ring-state page、1 个 SQ data page、1 个 RQ data page | 协议 v17 response 为 `qpn=101` 和协商 caps `16/16,1/1,inline=0`；kernel 令 `qp_handle=qpn=101`。kernel 经 udata 另返回 WQE sizes、depth、UAR mmap offset 和 QP/CQ doorbell offset，这些不是 AdminQ response 字段。公开返回 `ibv_qp *=0x562afa939860,qp_num=0x65` |
+| `ibv_open_device(rocep0s10)` | #15 `CREATE_UC pfn=0xc0001`。设备名只用于选中 uverbs device，不进入 request；kernel UAR allocator 选择 BAR2 page 1，物理 PFN 才进入 request | `ctx_handle=0` 只保存在 kernel ucontext；`qp_tab_size` 由 kernel 从 DSR caps 另经 udata 返回。provider 分配并返回 `ibv_context *=0x5605ae3bf0f0`，该指针不来自 AdminQ |
+| `ibv_alloc_pd(ctx)` | #16 `CREATE_PD ctx=0`；公开 context 指针转换为 kernel 保存的 `ctx_handle` | `pd_handle=1` → kernel `pd_handle/pdn=1` → provider `pdn=1`；公开返回 `ibv_pd *=0x5605ae3b59d0` |
+| `ibv_create_cq(ctx,16,NULL,NULL,0)`（send） | #17 `CREATE_CQ ctx=0 cqe=16 nchunks=2 pdir_dma=0x102cb3000`。`cqe` 经 power-of-two round（16 不变）；provider 创建 8192-byte buffer（4 KiB ring header + 16×64-byte CQE 向页对齐），kernel pin 后派生 2 pages 和页目录。`cq_context=NULL` 仅是用户态回调数据；`channel=NULL`、`comp_vector=0` 不进入 AdminQ | `cq_handle=1,cqe=16` → udata `cqn=1,ncqe=16`；`cqe_size=64` 是 kernel 本地常量，不是 AdminQ response。公开返回 `ibv_cq *=0x5605ae3bf500,cqe=16` |
+| 同上（recv） | #18 字段相同，仅派生 `pdir_dma=0x11040c000` | `cq_handle=2,cqe=16`；公开返回 `ibv_cq *=0x5605ae3bf660,cqe=16` |
+| `ibv_reg_mr(pd,0x5605ae3bf7c0,4096,LOCAL_WRITE)`（send） | #19 `CREATE_MR pd=1 start=0x5605ae3bf7c0 length=4096 pdir_dma=0x122720000 access=0x1 flags=0 nchunks=2`。`pd/start/length/access` 对应实参；`flags=0` 表示普通 user MR；地址未页对齐，所以覆盖两个 4 KiB pages，kernel 派生 `nchunks/pdir_dma` | `mr_handle=1,lkey=2,rkey=0xffffffff`；handle 留在 kernel 供销毁，标准 uverbs response 形成公开 `ibv_mr *=0x5605ae3c17e0,lkey=2,rkey=0xffffffff` |
+| `ibv_reg_mr(pd,0x5605ae3c07d0,4096,LOCAL_WRITE)`（recv） | #20 同样映射，`pdir_dma=0x1044ab000,nchunks=2` | `mr_handle=2,lkey=3,rkey=0xffffffff`；公开 `ibv_mr *=0x5605ae3c1820` |
+| `ibv_create_qp(pd,&attr)` | #21 `CREATE_QP pd=1 scq=1 rcq=2 srq=0 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 inline=0 sq_sig_all=0 qp_type=2 is_srq=0 total_chunks=3 send_chunks=1 pdir_dma=0x106e63000`，另有 `lkey=0,access_flags=LOCAL_WRITE`。PD/CQ 指针转换为 handle；RC 枚举转换为 2；NULL SRQ 转成 0/false。provider 派生 SQ/RQ WQE size 和两个 mmap buffer，kernel pin 后形成 3 pages，其中 `tbl[0]` 是共享 ring-state page、1 个 SQ data page、1 个 RQ data page | 协议 v17 response 为 `qpn=101` 和协商 caps `16/16,1/1,inline=0`；kernel 令 `qp_handle=qpn=101`。kernel 经 udata 另返回 WQE sizes、depth、UAR mmap offset 和 QP/CQ doorbell offset，这些不是 AdminQ response 字段。公开返回 `ibv_qp *=0x5605ae3c1860,qp_num=0x65` |
 
 loopback backend 自己为 MR 生成 `rkey=handle+0x10000`，但 `rdma_rm_alloc_mr()` 明确把 guest response `rkey` 设成 `-1`，所以应用看到 `0xffffffff`；这不是日志遗漏。类似地，公开对象指针只用于当前进程，重跑会变化；句柄、序号和字段关系才是协议语义。
 
@@ -235,7 +250,7 @@ loopback 根据 `remote_qpn=101` 取到自身已排队的 receive WR，用 MR �
 
 卸载顺序为：#32 `QUERY_PORT`，#33 `DESTROY_QP qp=100`，#34 `DESTROY_CQ cq=0`，#35 `DESTROY_MR mr=0`，#36 `DESTROY_PD pd=0`。每条均收到对应 ack、`err=0` 和 vector 0，之后才写 `IMR=0xffffffff` 与 `CTL=RESET`。
 
-本轮 `rmmod rocm_ernic_rdma rocm_ernic_eth` 为 404 ms，证明 AdminQ IRQ 在资源注销期间仍可用，已修复旧记录中的约 60 秒五/六次超时问题。GID 日志为：
+本轮 `rmmod rocm_ernic_rdma rocm_ernic_eth` 为 328 ms，证明 AdminQ IRQ 在资源注销期间仍可用，已修复旧记录中的约 60 秒五/六次超时问题。GID 日志为：
 
 `del_gid ... netdev=none local=1` → `removed local-only GID from table`
 
@@ -261,6 +276,7 @@ QMP `device_del ernic0` 返回成功；guest kernel 与 server 的禁止模式�
 
 - `revision.txt`：仓库提交和内外层 kernel 版本。
 - `device-layout.txt`：PCI BAR、resource 长度、MSI-X和 RDMA device。
+- `bar1-register-writes.txt`：全部 BAR1 写按 offset/value 汇总后的精确计数。
 - `bar2-doorbell-counts.txt`：全部 BAR2 写按 offset/value 汇总后的精确计数。
 - `adminq-dma-init.log`：DSR/request/response slot 的 DMA 地址与映射长度。
 - `adminq-init.log`：#1～#14 初始化命令。

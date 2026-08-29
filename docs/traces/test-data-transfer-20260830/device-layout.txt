@@ -1,0 +1,45 @@
+## lspci -Dvv
+0000:00:0a.0 Ethernet controller: Advanced Micro Devices, Inc. [AMD] Device 8000
+	Subsystem: Advanced Micro Devices, Inc. [AMD] Device 8000
+	Physical Slot: 10
+	Control: I/O- Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx+
+	Status: Cap+ 66MHz- UDF- FastB2B- ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort- >SERR- <PERR- INTx-
+	Latency: 64
+	Interrupt: pin A routed to IRQ 11
+	Region 0: Memory at c0200000 (32-bit, non-prefetchable) [size=16K]
+	Region 1: Memory at c0204000 (32-bit, non-prefetchable) [size=256]
+	Region 2: Memory at c0000000 (32-bit, non-prefetchable) [size=2M]
+	Capabilities: [40] MSI-X: Enable+ Count=3 Masked-
+		Vector table: BAR=0 offset=00000000
+		PBA: BAR=0 offset=00002000
+	Kernel driver in use: rocm_ernic_eth
+
+## lspci -Dnnk
+0000:00:0a.0 Ethernet controller [0200]: Advanced Micro Devices, Inc. [AMD] Device [1022:8000]
+	Subsystem: Advanced Micro Devices, Inc. [AMD] Device [1022:8000]
+	Kernel driver in use: rocm_ernic_eth
+## resource
+0x00000000c0200000 0x00000000c0203fff 0x0000000000040200
+0x00000000c0204000 0x00000000c02040ff 0x0000000000040200
+0x00000000c0000000 0x00000000c01fffff 0x0000000000040200
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+## resource sizes
+resource0 16384 bytes
+resource1 256 bytes
+resource2 2097152 bytes
+## interrupts
+ 86:          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0         14          0          0          0          0          0          0          0          0          0  PCI-MSIX-0000:00:0a.0   0-edge      rocm_ernic_rdma
+ 87:          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0  PCI-MSIX-0000:00:0a.0   1-edge      rocm_ernic_rdma
+ 88:          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0  PCI-MSIX-0000:00:0a.0   2-edge      rocm_ernic_rdma
+## infiniband
+0: rocep0s10: node_type ca protocol roce fw d887bffd9d902907
+ node_guid 6e2d:6dfe:ff63:6f70 sys_image_guid 6e2d:6dfe:ff63:6f70

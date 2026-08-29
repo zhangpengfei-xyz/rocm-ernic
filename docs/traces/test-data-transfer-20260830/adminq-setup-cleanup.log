@@ -1,0 +1,58 @@
+INFO: rdma: ADMINQ[15] REQ cmd=13(CREATE_UC) response=0
+INFO: rdma: ADMINQ[15] REQ CREATE_UC pfn=0xc0001
+INFO: rdma: ADMINQ[15] RSP cmd=13(CREATE_UC) response=0 ack=0x8000000d err=0
+INFO: rdma: ADMINQ[15] RSP CREATE_UC ctx=0
+INFO: rdma: ADMINQ[16] REQ cmd=2(CREATE_PD) response=0
+INFO: rdma: ADMINQ[16] REQ CREATE_PD ctx=0
+INFO: rdma: ADMINQ[16] RSP cmd=2(CREATE_PD) response=0 ack=0x80000002 err=0
+INFO: rdma: ADMINQ[16] RSP CREATE_PD pd=1
+INFO: rdma: ADMINQ[17] REQ cmd=6(CREATE_CQ) response=0
+INFO: rdma: ADMINQ[17] REQ CREATE_CQ ctx=0 cqe=16 nchunks=2 pdir_dma=0x102cb3000
+INFO: rdma: ADMINQ[17] RSP cmd=6(CREATE_CQ) response=0 ack=0x80000006 err=0
+INFO: rdma: ADMINQ[17] RSP CREATE_CQ cq=1 cqe=16
+INFO: rdma: ADMINQ[18] REQ cmd=6(CREATE_CQ) response=0
+INFO: rdma: ADMINQ[18] REQ CREATE_CQ ctx=0 cqe=16 nchunks=2 pdir_dma=0x11040c000
+INFO: rdma: ADMINQ[18] RSP cmd=6(CREATE_CQ) response=0 ack=0x80000006 err=0
+INFO: rdma: ADMINQ[18] RSP CREATE_CQ cq=2 cqe=16
+INFO: rdma: ADMINQ[19] REQ cmd=4(CREATE_MR) response=0
+INFO: rdma: ADMINQ[19] REQ CREATE_MR pd=1 start=0x5605ae3bf7c0 length=4096 pdir_dma=0x122720000 access=0x1 flags=0 nchunks=2
+INFO: rdma: ADMINQ[19] RSP cmd=4(CREATE_MR) response=0 ack=0x80000004 err=0
+INFO: rdma: ADMINQ[19] RSP CREATE_MR mr=1 lkey=0x2 rkey=0xffffffff
+INFO: rdma: ADMINQ[20] REQ cmd=4(CREATE_MR) response=0
+INFO: rdma: ADMINQ[20] REQ CREATE_MR pd=1 start=0x5605ae3c07d0 length=4096 pdir_dma=0x1044ab000 access=0x1 flags=0 nchunks=2
+INFO: rdma: ADMINQ[20] RSP cmd=4(CREATE_MR) response=0 ack=0x80000004 err=0
+INFO: rdma: ADMINQ[20] RSP CREATE_MR mr=2 lkey=0x3 rkey=0xffffffff
+INFO: rdma: ADMINQ[21] REQ cmd=9(CREATE_QP) response=0
+INFO: rdma: ADMINQ[21] REQ CREATE_QP pd=1 scq=1 rcq=2 srq=0 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 inline=0 sq_sig_all=0 qp_type=2 is_srq=0 chunks=3/1 pdir_dma=0x106e63000
+INFO: rdma: ADMINQ[21] RSP cmd=9(CREATE_QP) response=0 ack=0x80000009 err=0
+INFO: rdma: ADMINQ[21] RSP CREATE_QP qpn=101 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 inline=0
+INFO: rdma: ADMINQ[22] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[22] REQ MODIFY_QP qp=101 mask=0x39 state=1 pkey=0 port=1 access=0x6 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: ADMINQ[22] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[23] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[23] REQ MODIFY_QP qp=101 mask=0x129181 state=2 pkey=0 port=0 access=0 mtu=3 dest_qpn=101 rq_psn=0 sq_psn=0 max_dest_atomic=1 min_rnr=12 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=fe80:0000:...:2d6e
+INFO: rdma: ADMINQ[23] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[24] REQ cmd=10(MODIFY_QP) response=0
+INFO: rdma: ADMINQ[24] REQ MODIFY_QP qp=101 mask=0x12e01 state=3 pkey=0 port=0 access=0 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=14 retry=7 rnr_retry=7 max_rd_atomic=1 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: ADMINQ[24] RSP cmd=10(MODIFY_QP) response=0 ack=0x8000000a err=0
+INFO: rdma: ADMINQ[25] REQ cmd=12(DESTROY_QP) response=0
+INFO: rdma: ADMINQ[25] REQ DESTROY_QP qp=101
+INFO: rdma: ADMINQ[25] RSP cmd=12(DESTROY_QP) response=0 ack=0x8000000c err=0
+INFO: rdma: ADMINQ[26] REQ cmd=5(DESTROY_MR) response=0
+INFO: rdma: ADMINQ[26] REQ DESTROY_MR mr=1
+INFO: rdma: ADMINQ[26] RSP cmd=5(DESTROY_MR) response=0 ack=0x80000005 err=0
+INFO: rdma: ADMINQ[27] REQ cmd=5(DESTROY_MR) response=0
+INFO: rdma: ADMINQ[27] REQ DESTROY_MR mr=2
+INFO: rdma: ADMINQ[27] RSP cmd=5(DESTROY_MR) response=0 ack=0x80000005 err=0
+INFO: rdma: ADMINQ[28] REQ cmd=8(DESTROY_CQ) response=0
+INFO: rdma: ADMINQ[28] REQ DESTROY_CQ cq=1
+INFO: rdma: ADMINQ[28] RSP cmd=8(DESTROY_CQ) response=0 ack=0x80000008 err=0
+INFO: rdma: ADMINQ[29] REQ cmd=8(DESTROY_CQ) response=0
+INFO: rdma: ADMINQ[29] REQ DESTROY_CQ cq=2
+INFO: rdma: ADMINQ[29] RSP cmd=8(DESTROY_CQ) response=0 ack=0x80000008 err=0
+INFO: rdma: ADMINQ[30] REQ cmd=3(DESTROY_PD) response=0
+INFO: rdma: ADMINQ[30] REQ DESTROY_PD pd=1
+INFO: rdma: ADMINQ[30] RSP cmd=3(DESTROY_PD) response=0 ack=0x80000003 err=0
+INFO: rdma: ADMINQ[31] REQ cmd=14(DESTROY_UC) response=0
+INFO: rdma: ADMINQ[31] REQ DESTROY_UC ctx=0
+INFO: rdma: ADMINQ[31] RSP cmd=14(DESTROY_UC) response=0 ack=0x8000000e err=0

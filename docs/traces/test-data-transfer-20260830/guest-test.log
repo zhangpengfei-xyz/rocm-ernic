@@ -1,0 +1,153 @@
+Warning: Permanently added '172.16.100.30' (ED25519) to the list of known hosts.
+
+╔════════════════════════════════════════════════════════════╗
+║                                                            ║
+║      Comprehensive Data Transfer Test                     ║
+║      Tests actual send/recv with loopback backend         ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════╗
+║ Setting Up Resources                                       ║
+╚════════════════════════════════════════════════════════════╝
+
+TRACE_IBV[1] ENTER ibv_get_device_list
+TRACE_IBV[2] EXIT ibv_get_device_list list=0x5605ae3b59d0 num_devices=1
+TRACE_IBV[3] ENTER ibv_open_device device=rocep0s10
+TRACE_IBV[4] EXIT ibv_open_device context=0x5605ae3bf0f0
+✓ Opened device: rocep0s10
+TRACE_IBV[5] ENTER ibv_alloc_pd context=0x5605ae3bf0f0
+TRACE_IBV[6] EXIT ibv_alloc_pd pd=0x5605ae3b59d0
+✓ Allocated Protection Domain
+TRACE_IBV[7] ENTER ibv_create_cq role=send context=0x5605ae3bf0f0 cqe=16 channel=NULL cq_context=NULL comp_vector=0
+TRACE_IBV[8] EXIT ibv_create_cq role=send cq=0x5605ae3bf500 cqe=16
+TRACE_IBV[9] ENTER ibv_create_cq role=recv context=0x5605ae3bf0f0 cqe=16 channel=NULL cq_context=NULL comp_vector=0
+TRACE_IBV[10] EXIT ibv_create_cq role=recv cq=0x5605ae3bf660 cqe=16
+✓ Created Completion Queues
+✓ Allocated buffers (4096 bytes each)
+TRACE_IBV[11] ENTER ibv_reg_mr role=send pd=0x5605ae3b59d0 addr=0x5605ae3bf7c0 length=4096 access=0x1
+TRACE_IBV[12] EXIT ibv_reg_mr role=send mr=0x5605ae3c17e0 lkey=0x2 rkey=0xffffffff
+TRACE_IBV[13] ENTER ibv_reg_mr role=recv pd=0x5605ae3b59d0 addr=0x5605ae3c07d0 length=4096 access=0x1
+TRACE_IBV[14] EXIT ibv_reg_mr role=recv mr=0x5605ae3c1820 lkey=0x3 rkey=0xffffffff
+✓ Registered Memory Regions
+  Send MR: lkey=0x2
+  Recv MR: lkey=0x3
+TRACE_IBV[15] ENTER ibv_create_qp pd=0x5605ae3b59d0 type=2 scq=0x5605ae3bf500 rcq=0x5605ae3bf660 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 sq_sig_all=0
+TRACE_IBV[16] EXIT ibv_create_qp qp=0x5605ae3c1860 qpn=0x65 send_wr=16 recv_wr=16 send_sge=1 recv_sge=1 inline=0
+✓ Created QP (QPN = 0x65)
+TRACE_IBV[17] ENTER ibv_modify_qp transition=INIT qp=0x65 mask=0x39 state=1 pkey=0 port=1 access=0x6
+TRACE_IBV[18] EXIT ibv_modify_qp transition=INIT ret=0
+✓ QP -> INIT
+TRACE_IBV[19] ENTER ibv_query_gid context=0x5605ae3bf0f0 port=1 index=0
+TRACE_IBV[20] EXIT ibv_query_gid ret=0 gid=fe80:0000:...:2d6e
+TRACE_IBV[21] ENTER ibv_modify_qp transition=RTR qp=0x65 mask=0x129181 state=2 mtu=3 dest_qpn=0x65 rq_psn=0 max_dest_atomic=1 min_rnr=12 sgid_index=0 hop_limit=1
+TRACE_IBV[22] EXIT ibv_modify_qp transition=RTR ret=0
+✓ QP -> RTR (self-loopback)
+TRACE_IBV[23] ENTER ibv_modify_qp transition=RTS qp=0x65 mask=0x12e01 state=3 sq_psn=0 timeout=14 retry=7 rnr_retry=7 max_rd_atomic=1
+TRACE_IBV[24] EXIT ibv_modify_qp transition=RTS ret=0
+✓ QP -> RTS
+
+╔════════════════════════════════════════════════════════════╗
+║ Test 1: Basic Send/Recv                                    ║
+╚════════════════════════════════════════════════════════════╝
+
+Prepared buffers:
+  Send: 1024 bytes of 0xab
+  Recv: cleared
+
+✓ Posted receive WR
+✓ Posted send WR (1024 bytes)
+
+Polling for completions...
+  Send completion: wr_id=1, bytes=1024
+  Recv completion: wr_id=1, bytes=1024
+
+✓ Both operations completed!
+
+Note: Loopback backend simulates data transfer
+      Actual data verification depends on backend pattern configuration
+
+╔════════════════════════════════════════════════════════════╗
+║ Test 2: Multiple Sequential Transfers                      ║
+╚════════════════════════════════════════════════════════════╝
+
+Performing 5 send/recv pairs (512 bytes each)...
+
+Transfer 1: posted send/recv
+  Send completion: wr_id=100, bytes=512
+  Recv completion: wr_id=100, bytes=512
+Transfer 2: posted send/recv
+  Send completion: wr_id=101, bytes=512
+  Recv completion: wr_id=101, bytes=512
+Transfer 3: posted send/recv
+  Send completion: wr_id=102, bytes=512
+  Recv completion: wr_id=102, bytes=512
+Transfer 4: posted send/recv
+  Send completion: wr_id=103, bytes=512
+  Recv completion: wr_id=103, bytes=512
+Transfer 5: posted send/recv
+  Send completion: wr_id=104, bytes=512
+  Recv completion: wr_id=104, bytes=512
+
+✓ All 5 transfers completed successfully!
+
+╔════════════════════════════════════════════════════════════╗
+║ Test 3: Varying Transfer Sizes                             ║
+╚════════════════════════════════════════════════════════════╝
+
+Testing 64 bytes...
+  Send completion: wr_id=200, bytes=64
+  Recv completion: wr_id=200, bytes=64
+  ✓ 64 bytes completed
+Testing 256 bytes...
+  Send completion: wr_id=201, bytes=256
+  Recv completion: wr_id=201, bytes=256
+  ✓ 256 bytes completed
+Testing 1024 bytes...
+  Send completion: wr_id=202, bytes=1024
+  Recv completion: wr_id=202, bytes=1024
+  ✓ 1024 bytes completed
+Testing 2048 bytes...
+  Send completion: wr_id=203, bytes=2048
+  Recv completion: wr_id=203, bytes=2048
+  ✓ 2048 bytes completed
+Testing 4096 bytes...
+  Send completion: wr_id=204, bytes=4096
+  Recv completion: wr_id=204, bytes=4096
+  ✓ 4096 bytes completed
+
+✓ All size variations completed!
+
+╔════════════════════════════════════════════════════════════╗
+║ Test Summary                                               ║
+╚════════════════════════════════════════════════════════════╝
+
+✓ Setup: Device, PD, CQ, QP, MR
+✓ Test 1: Basic send/recv (1024 bytes)
+✓ Test 2: Multiple transfers (5 x 512 bytes)
+✓ Test 3: Varying sizes (64 to 4096 bytes)
+
+Total completions:
+  Sends: 11
+  Recvs: 11
+
+╔════════════════════════════════════════════════════════════╗
+║                                                            ║
+║              ALL TESTS PASSED! ✅                         ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+
+TRACE_IBV[25] ENTER ibv_destroy_qp qpn=0x65
+TRACE_IBV[26] EXIT ibv_destroy_qp
+TRACE_IBV[27] ENTER ibv_dereg_mr role=send lkey=0x2
+TRACE_IBV[28] EXIT ibv_dereg_mr role=send
+TRACE_IBV[29] ENTER ibv_dereg_mr role=recv lkey=0x3
+TRACE_IBV[30] EXIT ibv_dereg_mr role=recv
+TRACE_IBV[31] ENTER ibv_destroy_cq role=send cq=0x5605ae3bf500
+TRACE_IBV[32] EXIT ibv_destroy_cq role=send
+TRACE_IBV[33] ENTER ibv_destroy_cq role=recv cq=0x5605ae3bf660
+TRACE_IBV[34] EXIT ibv_destroy_cq role=recv
+TRACE_IBV[35] ENTER ibv_dealloc_pd pd=0x5605ae3b59d0
+TRACE_IBV[36] EXIT ibv_dealloc_pd
+TRACE_IBV[37] ENTER ibv_close_device context=0x5605ae3bf0f0
+TRACE_IBV[38] EXIT ibv_close_device
