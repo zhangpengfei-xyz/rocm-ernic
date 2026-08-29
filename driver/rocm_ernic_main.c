@@ -104,6 +104,9 @@ module_param(mesh_use_dummy_netdev, bool, 0444);
 MODULE_PARM_DESC(mesh_use_dummy_netdev,
                  "Use dummy mesh netdev (default: false for stability)");
 
+/* Passed back by RDMA core so del_gid() can identify a local-only GID
+ * after the IB device has been detached from its netdev. */
+static u8 rocm_ernic_local_gid_context;
 
 static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context);
 static int rocm_ernic_del_gid(const struct ib_gid_attr *attr, void **context);
@@ -794,6 +797,7 @@ static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context)
     u8 mac[ETH_ALEN];
     bool gid_is_zero;
 
+    *context = NULL;
     dev_info(&dev->pdev->dev,
              "add_gid called: index=%d gid=%pI6c netdev=%s%s%s mesh=%d id=%u\n",
              attr->index, &attr->gid, dev->netdev ? dev->netdev->name : "none",
@@ -877,9 +881,10 @@ static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context)
         }
 
         memcpy(&dev->sgid_tbl[attr->index], &gid, sizeof(gid));
+        *context = &rocm_ernic_local_gid_context;
         dev_info(
             &dev->pdev->dev,
-            "added GID to local table (loopback mode): index=%d gid=%pI6c\n",
+            "added local-only GID to table: index=%d gid=%pI6c\n",
             attr->index, &gid);
         return 0;
     }
@@ -921,22 +926,26 @@ static int rocm_ernic_del_gid(const struct ib_gid_attr *attr, void **context)
     struct rocm_ernic_dev *dev = to_vdev(attr->device);
     bool is_loopback = dev->loopback_mode ||
                        (dev->netdev && (dev->netdev->flags & IFF_LOOPBACK));
+    bool is_dummy = dev->netdev && (dev->netdev->priv_flags & IFF_NO_QUEUE) &&
+                    !is_loopback;
+    bool is_local = *context == &rocm_ernic_local_gid_context;
 
-    dev_info(&dev->pdev->dev, "del_gid called: index=%d netdev=%s%s\n",
+    dev_info(&dev->pdev->dev,
+             "del_gid called: index=%d netdev=%s%s%s local=%d\n",
              attr->index, dev->netdev ? dev->netdev->name : "none",
-             is_loopback ? " (loopback)" : "");
+             is_loopback ? " (loopback)" : "", is_dummy ? " (dummy)" : "",
+             is_local);
 
     if (!dev->sgid_tbl || attr->index >= dev->dsr->caps.gid_tbl_len) {
         return -EINVAL;
     }
 
-    /*
-     * For loopback-associated devices, just clear the local GID table.
-     */
-    if (is_loopback) {
+    /* Local-only GIDs never had a corresponding server-side binding. */
+    if (is_loopback || is_dummy || is_local) {
         memset(&dev->sgid_tbl[attr->index], 0, sizeof(union ib_gid));
+        *context = NULL;
         dev_info(&dev->pdev->dev,
-                 "removed GID from local table (loopback mode): index=%d\n",
+                 "removed local-only GID from table: index=%d\n",
                  attr->index);
         return 0;
     }
