@@ -1,0 +1,37 @@
+## unload timing
+unload_ns=404555313
+unload_ms=404
+## guest kernel teardown
+Aug 29 18:39:38 localhost kernel: rocm_ernic_eth 0000:00:0a.0: RDMA driver detaching from Ethernet device
+Aug 29 18:39:38 localhost kernel: rocm_ernic_rdma: Detaching from PCI device 0000:00:0a.0
+Aug 29 18:39:38 localhost kernel: rocm_ernic_eth 0000:00:0a.0: del_gid called: index=0 netdev=none local=1
+Aug 29 18:39:38 localhost kernel: rocm_ernic_eth 0000:00:0a.0: removed local-only GID from table: index=0
+Aug 29 18:39:38 localhost kernel: rocm_ernic_rdma: RDMA driver module unloaded
+Aug 29 18:39:38 localhost kernel: rocm_ernic_eth 0000:00:0a.0: Ethernet driver removing
+## forbidden guest kernel patterns
+none
+## server shutdown
+INFO: rdma: ADMINQ[32] REQ cmd=0(QUERY_PORT) response=0
+INFO: rdma: ADMINQ[32] REQ QUERY_PORT port=1
+INFO: rdma: ADMINQ[32] RSP cmd=0(QUERY_PORT) response=0 ack=0x80000000 err=0
+INFO: rdma: >>> ERROR REGISTER READ: offset=0x14 (PVRDMA_REG_ERR) value=0
+INFO: rdma: ADMINQ[33] REQ cmd=12(DESTROY_QP) response=0
+INFO: rdma: ADMINQ[33] REQ DESTROY_QP qp=100
+INFO: rdma: ADMINQ[33] RSP cmd=12(DESTROY_QP) response=0 ack=0x8000000c err=0
+INFO: rdma: >>> ERROR REGISTER READ: offset=0x14 (PVRDMA_REG_ERR) value=0
+INFO: rdma: ADMINQ[34] REQ cmd=8(DESTROY_CQ) response=0
+INFO: rdma: ADMINQ[34] REQ DESTROY_CQ cq=0
+INFO: rdma: ADMINQ[34] RSP cmd=8(DESTROY_CQ) response=0 ack=0x80000008 err=0
+INFO: rdma: >>> ERROR REGISTER READ: offset=0x14 (PVRDMA_REG_ERR) value=0
+INFO: rdma: ADMINQ[35] REQ cmd=5(DESTROY_MR) response=0
+INFO: rdma: ADMINQ[35] REQ DESTROY_MR mr=0
+INFO: rdma: ADMINQ[35] RSP cmd=5(DESTROY_MR) response=0 ack=0x80000005 err=0
+INFO: rdma: >>> ERROR REGISTER READ: offset=0x14 (PVRDMA_REG_ERR) value=0
+INFO: rdma: ADMINQ[36] REQ cmd=3(DESTROY_PD) response=0
+INFO: rdma: ADMINQ[36] REQ DESTROY_PD pd=0
+INFO: rdma: ADMINQ[36] RSP cmd=3(DESTROY_PD) response=0 ack=0x80000003 err=0
+INFO: rdma: >>> ERROR REGISTER READ: offset=0x14 (PVRDMA_REG_ERR) value=0
+INFO: rdma: Loopback: Deleted GID index 0
+rocm-ernic: Shutdown complete
+## forbidden server patterns
+none

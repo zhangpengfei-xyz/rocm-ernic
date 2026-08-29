@@ -1,0 +1,233 @@
+INFO: rdma: Loopback: Created QP 101 type=2 (stored lqp=0x555555620f10 as ibqp)
+INFO: rdma: ADMINQ[22] REQ MODIFY_QP qp=101 mask=0x39 state=1 pkey=0 port=1 access=0x6 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: Loopback: QP 101 -> INIT
+INFO: rdma: rdma_rm_modify_qp: QP 101 -> INIT via backend 'loopback'
+INFO: rdma: ADMINQ[23] REQ MODIFY_QP qp=101 mask=0x129181 state=2 pkey=0 port=0 access=0 mtu=3 dest_qpn=101 rq_psn=0 sq_psn=0 max_dest_atomic=1 min_rnr=12 timeout=0 retry=0 rnr_retry=0 max_rd_atomic=0 sgid_index=0 dgid=fe80:0000:...:2d6e
+INFO: rdma: Loopback: QP 101 -> RTR (remote_qpn=101, rq_psn=0, local_addr=0x1065000, local_rkey=0xffffffff)
+INFO: rdma: rdma_rm_modify_qp: QP 101 -> RTR via backend 'loopback'
+INFO: rdma: ADMINQ[24] REQ MODIFY_QP qp=101 mask=0x12e01 state=3 pkey=0 port=0 access=0 mtu=0 dest_qpn=0 rq_psn=0 sq_psn=0 max_dest_atomic=0 min_rnr=0 timeout=14 retry=7 rnr_retry=7 max_rd_atomic=1 sgid_index=0 dgid=0000:0000:...:0000
+INFO: rdma: Loopback: QP 101 -> RTS (sq_psn=0)
+INFO: rdma: Loopback: QP 101 in RTS, waiting for pairing partner
+INFO: rdma: rdma_rm_modify_qp: QP 101 -> RTS via backend 'loopback'
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 1024 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=1 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=1024, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (1024 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=1024, transferred=1024, total_len=1024
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=1024, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=1 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x555555621390, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=100 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (512 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=512, transferred=512, total_len=512
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=100 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=101 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (512 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=512, transferred=512, total_len=512
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=101 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x555555621390, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=102 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (512 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=512, transferred=512, total_len=512
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=102 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=103 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (512 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=512, transferred=512, total_len=512
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=103 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x555555621390, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 512 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=104 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (512 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=512, transferred=512, total_len=512
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=512, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=104 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 64 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=200 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=64, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (64 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=64, transferred=64, total_len=64
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=64, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=200 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x555555621390, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 256 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=201 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=256, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (256 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=256, transferred=256, total_len=256
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=256, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=201 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 1024 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=202 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=1024, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (1024 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=1024, transferred=1024, total_len=1024
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=1024, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=202 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x555555621390, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 2048 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=203 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=2048, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (2048 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=2048, transferred=2048, total_len=2048
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=2048, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=203 qp=101 opcode=0 status=0
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x80000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x80000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x80000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x80000065, flags: send=0 recv=1
+INFO: rdma: >>> UAR: Calling pvrdma_qp_recv(handle=101)
+INFO: rdma: Loopback: Posted recv on QP 101 (wr_id=0x5555556210e0, 1 SGEs)
+rocm-ernic: >>> BAR2 (UAR) WRITE: offset=0x1000 val=0x40000065 count=4 - FORWARDING TO PVRDMA
+INFO: rdma: >>> WRAPPER: pvrdma_uar_write called: handle=0x7ffff77a4010 offset=0x1000 val=0x40000065 size=4
+INFO: rdma: >>> UAR WRITE: addr=0x1000, val=0x40000065, size=4
+INFO: rdma: >>> UAR: QP doorbell! val=0x40000065, flags: send=1 recv=0
+INFO: rdma: >>> UAR: Calling pvrdma_qp_send(handle=101)
+INFO: rdma: >>> DOORBELL: pvrdma_qp_send called for qp_handle=101
+INFO: rdma: >>> Loopback: post_send: Extracted pvrdma_qp_handle=101 from comp_ctx
+INFO: rdma: Loopback: SEND QP 101: 4096 bytes, pattern=preserve
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=2 wr_id=204 qp=101 opcode=128 status=0
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=4096, opcode=128
+INFO: rdma: Loopback: Send QP 101 -> Recv QP 101 (4096 bytes transferred)
+INFO: rdma: >>> Loopback: Calling loopback_update_byte_stats for SEND: qp_handle=101, stats_bytes=4096, transferred=4096, total_len=4096
+INFO: rdma: >>> loopback_update_byte_stats: QP handle=101, bytes=4096, opcode=0
+INFO: rdma: >>> pvrdma_qp_ops_comp_handler: cq_handle=1 wr_id=204 qp=101 opcode=0 status=0
+INFO: rdma: ADMINQ[25] REQ DESTROY_QP qp=101
+INFO: rdma: Loopback: Destroyed QP 101

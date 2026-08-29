@@ -1,0 +1,52 @@
+INFO: rdma: BAR1 READ: offset=0 size=4 value=0x11
+INFO: rdma: BAR1 WRITE: offset=0x4 size=4 value=0x9af3000
+INFO: rdma: BAR1 WRITE: offset=0x8 size=4 value=0x1
+INFO: rdma: DSRHIGH write: Starting DSR initialization
+INFO: rdma: load_dsr: About to map DSR at guest addr 0x109af3000
+INFO: rdma: === DMA MAP CALLED ===
+INFO: rdma:   guest_addr=0x109af3000 requested_len=288 dir=0
+INFO: rdma:   dev=0x7ffff77a4010
+INFO: rdma:   vfu_ctx=0x55555559ba30
+INFO: rdma:   Allocating SG of size 40
+INFO: rdma:   Calling vfu_addr_to_sgl(ctx=0x55555559ba30, addr=0x109af3000, len=288, sg=0x5555555c76a0, cnt=1, prot=RW)
+INFO: rdma:   vfu_addr_to_sgl returned 1 (success)
+INFO: rdma:   Calling vfu_sgl_get(ctx=0x55555559ba30, sg=0x5555555c76a0, iov=0x7fffffffe420, cnt=1)
+INFO: rdma:   vfu_sgl_get returned 0 (success)
+INFO: rdma:   iov.iov_base=0x7ff000881000 iov.iov_len=288
+INFO: rdma: === DMA MAP SUCCESS: guest=0x109af3000 -> host=0x7ff000881000 len=288 ===
+INFO: rdma: DMA map: Stored mapping #1 (guest=0x109af3000)
+rdma_pci_dma_map: pci_dma_map returned 0x7ff000881000 (as uint64=0x7ff000881000)
+INFO: rdma: load_dsr: rdma_pci_dma_map returned ptr=0x7ff000881000 as_uint64=0x7ff000881000
+INFO: rdma: load_dsr: Stored in dev->dsr_info.dsr = 0x7ff000881000 as_uint64=0x7ff000881000
+INFO: rdma: load_dsr: After shortcuts, dsr = 0x7ff000881000
+INFO: rdma: load_dsr: Reading cmd_slot_dma from DSR...
+INFO: rdma: load_dsr: cmd_slot_dma = 0x1601e4000
+INFO: rdma: === DMA MAP CALLED ===
+INFO: rdma:   guest_addr=0x1601e4000 requested_len=200 dir=0
+INFO: rdma:   dev=0x7ffff77a4010
+INFO: rdma:   vfu_ctx=0x55555559ba30
+INFO: rdma:   Allocating SG of size 40
+INFO: rdma:   Calling vfu_addr_to_sgl(ctx=0x55555559ba30, addr=0x1601e4000, len=200, sg=0x5555555c9d20, cnt=1, prot=RW)
+INFO: rdma:   vfu_addr_to_sgl returned 1 (success)
+INFO: rdma:   Calling vfu_sgl_get(ctx=0x55555559ba30, sg=0x5555555c9d20, iov=0x7fffffffe420, cnt=1)
+INFO: rdma:   vfu_sgl_get returned 0 (success)
+INFO: rdma:   iov.iov_base=0x7ff056f72000 iov.iov_len=200
+INFO: rdma: === DMA MAP SUCCESS: guest=0x1601e4000 -> host=0x7ff056f72000 len=200 ===
+INFO: rdma: DMA map: Stored mapping #2 (guest=0x1601e4000)
+rdma_pci_dma_map: pci_dma_map returned 0x7ff056f72000 (as uint64=0x7ff056f72000)
+INFO: rdma: load_dsr: mapped cmd_slot to host ptr=0x7ff056f72000 (dma=0x1601e4000)
+INFO: rdma: load_dsr: resp_slot_dma = 0x109ae9000
+INFO: rdma: === DMA MAP CALLED ===
+INFO: rdma:   guest_addr=0x109ae9000 requested_len=192 dir=0
+INFO: rdma:   dev=0x7ffff77a4010
+INFO: rdma:   vfu_ctx=0x55555559ba30
+INFO: rdma:   Allocating SG of size 40
+INFO: rdma:   Calling vfu_addr_to_sgl(ctx=0x55555559ba30, addr=0x109ae9000, len=192, sg=0x5555555c9d50, cnt=1, prot=RW)
+INFO: rdma:   vfu_addr_to_sgl returned 1 (success)
+INFO: rdma:   Calling vfu_sgl_get(ctx=0x55555559ba30, sg=0x5555555c9d50, iov=0x7fffffffe420, cnt=1)
+INFO: rdma:   vfu_sgl_get returned 0 (success)
+INFO: rdma:   iov.iov_base=0x7ff000877000 iov.iov_len=192
+INFO: rdma: === DMA MAP SUCCESS: guest=0x109ae9000 -> host=0x7ff000877000 len=192 ===
+INFO: rdma: DMA map: Stored mapping #3 (guest=0x109ae9000)
+rdma_pci_dma_map: pci_dma_map returned 0x7ff000877000 (as uint64=0x7ff000877000)
+INFO: rdma: load_dsr: mapped resp_slot to host ptr=0x7ff000877000 (dma=0x109ae9000)
