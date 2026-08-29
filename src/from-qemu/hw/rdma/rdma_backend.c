@@ -1351,11 +1351,20 @@ int rdma_backend_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
 }
 
 int rdma_backend_del_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                         union ibv_gid *gid)
+                         union ibv_gid *gid, int gid_idx)
 {
     RdmaCmMuxMsg msg = {};
     int ret;
 
+    /* Modern backends manage their own GID state and do not use rdmacm_mux. */
+    if (backend_dev->backend_ops && backend_dev->backend_ops->del_gid) {
+        ret = backend_dev->backend_ops->del_gid(backend_dev, ifname, gid_idx);
+        if (ret) {
+            rdma_error_report("Backend del_gid failed (%d)", ret);
+            return ret;
+        }
+        return 0;
+    }
 
     msg.hdr.op_code = RDMACM_MUX_OP_CODE_UNREG;
     memcpy(msg.hdr.sgid.raw, gid->raw, sizeof(msg.hdr.sgid));

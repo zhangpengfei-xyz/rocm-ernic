@@ -887,7 +887,7 @@ int rdma_rm_del_gid(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
     }
 
     rc = rdma_backend_del_gid(backend_dev, ifname,
-                              &dev_res->port.gid_tbl[gid_idx].gid);
+                              &dev_res->port.gid_tbl[gid_idx].gid, gid_idx);
     if (rc) {
         return -EINVAL;
     }

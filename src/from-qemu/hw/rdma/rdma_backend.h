@@ -78,7 +78,7 @@ void rdma_backend_fini(RdmaBackendDev *backend_dev);
 int rdma_backend_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
                          union ibv_gid *gid);
 int rdma_backend_del_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                         union ibv_gid *gid);
+                         union ibv_gid *gid, int gid_idx);
 int rdma_backend_get_gid_index(RdmaBackendDev *backend_dev, union ibv_gid *gid);
 void rdma_backend_start(RdmaBackendDev *backend_dev);
 void rdma_backend_stop(RdmaBackendDev *backend_dev);
