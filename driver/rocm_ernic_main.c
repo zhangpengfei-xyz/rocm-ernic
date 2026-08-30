@@ -454,7 +454,7 @@ static void rocm_ernic_qp_event(struct rocm_ernic_dev *dev, u32 qpn, int type)
     unsigned long flags;
 
     spin_lock_irqsave(&dev->qp_tbl_lock, flags);
-    qp = dev->qp_tbl[qpn % dev->dsr->caps.max_qp];
+    qp = qpn < dev->dsr->caps.max_qp ? dev->qp_tbl[qpn] : NULL;
     if (qp)
         refcount_inc(&qp->refcnt);
     spin_unlock_irqrestore(&dev->qp_tbl_lock, flags);
@@ -704,11 +704,19 @@ static void rocm_ernic_disable_intrs(struct rocm_ernic_dev *dev)
 static int rocm_ernic_alloc_intrs(struct rocm_ernic_dev *dev)
 {
     struct pci_dev *pdev = dev->pdev;
+    bool identity = dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+                    (dev->dsr->caps.mesh_flags &
+                     (ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR |
+                      ROCM_ERNIC_BACKEND_F_GID_BIND_REQUIRED)) ==
+                        (ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR |
+                         ROCM_ERNIC_BACKEND_F_GID_BIND_REQUIRED);
     int ret = 0, i;
 
-    ret =
-        pci_alloc_irq_vectors(pdev, 1, ROCM_ERNIC_MAX_INTERRUPTS, PCI_IRQ_MSIX);
+    ret = pci_alloc_irq_vectors(pdev, identity ? ROCM_ERNIC_MAX_INTERRUPTS : 1,
+                                ROCM_ERNIC_MAX_INTERRUPTS, PCI_IRQ_MSIX);
     if (ret < 0) {
+        if (identity)
+            return ret;
         ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSI | PCI_IRQ_INTX);
         if (ret < 0)
             return ret;
@@ -789,6 +797,12 @@ static int rocm_ernic_add_gid_at_index(struct rocm_ernic_dev *dev,
 static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context)
 {
     struct rocm_ernic_dev *dev = to_vdev(attr->device);
+    bool identity = dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+                    (dev->dsr->caps.mesh_flags &
+                     (ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR |
+                      ROCM_ERNIC_BACKEND_F_GID_BIND_REQUIRED)) ==
+                        (ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR |
+                         ROCM_ERNIC_BACKEND_F_GID_BIND_REQUIRED);
     bool is_loopback = dev->loopback_mode ||
                        (dev->netdev && (dev->netdev->flags & IFF_LOOPBACK));
     bool is_dummy =
@@ -832,7 +846,8 @@ static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context)
      * Format: fe80::<EUI-64> where EUI-64 is MAC converted to EUI-64 format.
      */
     gid_is_zero = !memcmp(&gid, &(union ib_gid){0}, sizeof(gid));
-    if (is_dummy && gid_is_zero && dev->netdev->addr_len == ETH_ALEN) {
+    if (!identity && is_dummy && gid_is_zero &&
+        dev->netdev->addr_len == ETH_ALEN) {
         /* Generate IPv6 link-local GID from MAC address */
         memcpy(mac, dev->netdev->dev_addr, ETH_ALEN);
         mac[0] ^= 0x02; /* Set local bit for EUI-64 */
@@ -863,7 +878,8 @@ static int rocm_ernic_add_gid(const struct ib_gid_attr *attr, void **context)
      * Also handle case where netdev might not be set yet (early in probe)
      * but we receive a zero GID - treat as loopback mode.
      */
-    if (is_loopback || is_dummy || (!dev->netdev && gid_is_zero)) {
+    if (!identity &&
+        (is_loopback || is_dummy || (!dev->netdev && gid_is_zero))) {
         if (gid_is_zero) {
             /* RDMA core provided zero GID - use deterministic format
              * matching what loopback backend sets */
@@ -1250,14 +1266,20 @@ static int __rocm_ernic_attach_to_eth_dev(struct pci_dev *pdev)
     }
     dev_dbg(&pdev->dev, "gid table len %d\n", dev->dsr->caps.gid_tbl_len);
 
-    /* Initialize default GID at index 0 using mesh metadata when available */
+    /* Identity-mirror mode is populated only by RDMA core after the mirrored
+     * netdev receives its address; legacy backends retain their synthetic GID. */
     memset(&dev->sgid_tbl[0], 0, sizeof(union ib_gid));
-    dev->sgid_tbl[0].raw[0] = 0xfe;
-    dev->sgid_tbl[0].raw[1] = 0x80;
-    dev->sgid_tbl[0].raw[8] = 0x02;
-    dev->sgid_tbl[0].raw[11] = 0xff;
-    dev->sgid_tbl[0].raw[12] = 0xfe;
-    dev->sgid_tbl[0].raw[15] = dev->mesh_enabled ? dev->mesh_node_id : 0;
+    if (!(dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+          (dev->dsr->caps.mesh_flags &
+           ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR))) {
+        dev->sgid_tbl[0].raw[0] = 0xfe;
+        dev->sgid_tbl[0].raw[1] = 0x80;
+        dev->sgid_tbl[0].raw[8] = 0x02;
+        dev->sgid_tbl[0].raw[11] = 0xff;
+        dev->sgid_tbl[0].raw[12] = 0xfe;
+        dev->sgid_tbl[0].raw[15] =
+            dev->mesh_enabled ? dev->mesh_node_id : 0;
+    }
     dev_info(&pdev->dev,
              "initialized default GID[0]=%pI6c (mesh_enabled=%d node_id=%u)\n",
              &dev->sgid_tbl[0], dev->mesh_enabled, dev->mesh_node_id);

@@ -38,6 +38,56 @@ typedef enum {
     RDMA_BACKEND_TYPE_MAX
 } RdmaBackendType;
 
+#define RDMA_BACKEND_F_MESH              (1U << 0)
+#define RDMA_BACKEND_F_IDENTITY_MIRROR   (1U << 8)
+#define RDMA_BACKEND_F_GID_BIND_REQUIRED (1U << 9)
+
+typedef struct RdmaBackendQpAttr {
+    enum ibv_qp_state state;
+    enum ibv_qp_state cur_state;
+    uint32_t access_flags;
+    uint16_t pkey_index;
+    uint8_t port_num;
+    enum ibv_mtu path_mtu;
+    uint32_t dest_qpn;
+    uint32_t rq_psn;
+    uint32_t sq_psn;
+    union ibv_gid dgid;
+    uint8_t sgid_index;
+    uint8_t hop_limit;
+    uint8_t traffic_class;
+    uint32_t flow_label;
+    uint8_t sl;
+    uint16_t dlid;
+    uint8_t src_path_bits;
+    uint8_t ah_flags;
+    uint8_t ah_port_num;
+    uint8_t timeout;
+    uint8_t retry_cnt;
+    uint8_t rnr_retry;
+    uint8_t min_rnr_timer;
+    uint8_t max_rd_atomic;
+    uint8_t max_dest_rd_atomic;
+    uint32_t qkey;
+} RdmaBackendQpAttr;
+
+typedef struct MlnxIdentityProfile {
+    char device[64];
+    char ethdev[64];
+    char pci_bdf[32];
+    uint8_t port;
+    uint8_t mac[6];
+    uint32_t ipv4_be;
+    union ibv_gid link_local_gid;
+    union ibv_gid ipv4_gid;
+    int link_local_gid_index;
+    int ipv4_gid_index;
+    uint32_t ethernet_mtu;
+    enum ibv_mtu active_mtu;
+    enum ibv_port_state port_state;
+    uint64_t generation;
+} MlnxIdentityProfile;
+
 /* Stub for rdmacm-mux types (MAD handling not used) */
 /* Forward declarations */
 struct ibv_mad_hdr;
@@ -128,6 +178,11 @@ typedef struct RdmaBackendDev {
     bool mesh_enabled;
     uint8_t mesh_node_id;
     uint8_t mesh_num_nodes;
+
+    /* Protocol/identity metadata. */
+    uint16_t feature_flags;
+    uint32_t protocol_version;
+    MlnxIdentityProfile *identity;
 
     /* Verbs-specific fields (kept for verbs backend) */
     struct ibv_device *ib_dev;

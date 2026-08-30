@@ -144,6 +144,9 @@ enum rocm_ernic_network_type {
 struct rocm_ernic_alloc_ucontext_resp {
     __u32 qp_tab_size;
     __u32 reserved;
+    __aligned_u64 uar_mmap_offset;
+    __u32 uar_cq_offset;
+    __u32 reserved2;
 };
 
 struct rocm_ernic_alloc_pd_resp {

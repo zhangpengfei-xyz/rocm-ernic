@@ -51,7 +51,7 @@
 
 static inline int rocm_ernic_cmd_recv(struct rocm_ernic_dev *dev,
                                       union rocm_ernic_cmd_resp *resp,
-                                      unsigned resp_code)
+                                      unsigned resp_code, u64 cookie)
 {
     dev_dbg(&dev->pdev->dev, "receive response from device\n");
 
@@ -60,6 +60,14 @@ static inline int rocm_ernic_cmd_recv(struct rocm_ernic_dev *dev,
     spin_lock(&dev->cmd_lock);
     memcpy(resp, dev->resp_slot, sizeof(*resp));
     spin_unlock(&dev->cmd_lock);
+
+    if (resp->hdr.response != cookie) {
+        dev_warn(&dev->pdev->dev,
+                 "stale response cookie %#llx expected %#llx\n",
+                 (unsigned long long)resp->hdr.response,
+                 (unsigned long long)cookie);
+        return -EPROTO;
+    }
 
     if (resp->hdr.ack != resp_code) {
         dev_warn(&dev->pdev->dev, "unknown response %#x expected %#x\n",
@@ -74,6 +82,9 @@ int rocm_ernic_cmd_post(struct rocm_ernic_dev *dev,
                         union rocm_ernic_cmd_req *req,
                         union rocm_ernic_cmd_resp *resp, unsigned resp_code)
 {
+    union rocm_ernic_cmd_resp local_resp;
+    union rocm_ernic_cmd_resp *actual_resp = resp ? resp : &local_resp;
+    u64 cookie;
     int err;
 
     dev_dbg(&dev->pdev->dev, "post request to device\n");
@@ -81,8 +92,18 @@ int rocm_ernic_cmd_post(struct rocm_ernic_dev *dev,
     /* Serializiation */
     down(&dev->cmd_sema);
 
+    cookie = ++dev->cmd_cookie;
+    req->hdr.response = cookie;
+    req->hdr.reserved = 0;
+    if (!resp_code)
+        resp_code = ROCM_ERNIC_CMD_FIRST_RESP + req->hdr.cmd;
+
     BUILD_BUG_ON(sizeof(union rocm_ernic_cmd_req) !=
                  sizeof(struct rocm_ernic_cmd_modify_qp));
+    BUILD_BUG_ON(sizeof(struct rocm_ernic_cmd_create_mr) != 56);
+    BUILD_BUG_ON(sizeof(struct rocm_ernic_cmd_create_mr_v2) != 64);
+    BUILD_BUG_ON(offsetof(struct rocm_ernic_cmd_create_mr_v2, iova) != 56);
+    BUILD_BUG_ON(sizeof(struct rocm_ernic_cmd_create_qp_resp_v2) != 48);
 
     spin_lock(&dev->cmd_lock);
     memcpy(dev->cmd_slot, req, sizeof(*req));
@@ -107,11 +128,13 @@ int rocm_ernic_cmd_post(struct rocm_ernic_dev *dev,
         goto out;
     }
 
-    /* Read error register after interrupt */
+    /* REG_ERR reports transport/protocol failure. Business errors are
+     * returned in every response header, including NOOP responses. */
     err = rocm_ernic_read_reg(dev, ROCM_ERNIC_REG_ERR);
     if (err == 0) {
-        if (resp != NULL)
-            err = rocm_ernic_cmd_recv(dev, resp, resp_code);
+        err = rocm_ernic_cmd_recv(dev, actual_resp, resp_code, cookie);
+        if (!err && actual_resp->hdr.err)
+            err = -(int)actual_resp->hdr.err;
     } else {
         dev_warn(&dev->pdev->dev, "command failed, error reg: %d\n", err);
         err = -EFAULT;

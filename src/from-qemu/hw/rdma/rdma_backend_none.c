@@ -204,7 +204,8 @@ static void none_post_recv(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
 
 /* GID management - stub implementations */
 static int none_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                        union ibv_gid *gid)
+                        union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                        uint32_t vlan, uint32_t mtu)
 {
     return 0; /* Pretend success */
 }

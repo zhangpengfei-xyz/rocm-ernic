@@ -560,7 +560,9 @@ static void init_dsr_dev_caps(PVRDMADev *dev)
                      fw_ver_from_git);
 #endif
     dsr->caps.mode = PVRDMA_DEVICE_MODE_ROCE;
-    dsr->caps.gid_types |= PVRDMA_GID_TYPE_FLAG_ROCE_V1;
+    dsr->caps.gid_types = dev->backend_dev.identity
+                               ? PVRDMA_GID_TYPE_FLAG_ROCE_V2
+                               : PVRDMA_GID_TYPE_FLAG_ROCE_V1;
 
     rdma_info_report("init_dsr_dev_caps: dsr->caps.gid_types AFTER = 0x%x",
                      dsr->caps.gid_types);
@@ -596,7 +598,10 @@ static void init_dsr_dev_caps(PVRDMADev *dev)
         dev->backend_dev.mesh_enabled ? dev->backend_dev.mesh_node_id : 0xff;
     dsr->caps.mesh_num_nodes =
         dev->backend_dev.mesh_enabled ? dev->backend_dev.mesh_num_nodes : 0;
-    dsr->caps.mesh_flags = dev->backend_dev.mesh_enabled ? 1 : 0;
+    dsr->caps.mesh_flags = dev->backend_dev.feature_flags |
+                           (dev->backend_dev.mesh_enabled
+                                ? PVRDMA_BACKEND_F_MESH
+                                : 0);
 
     /* Per libvfio-user pattern from server.c:
      * Immediately call vfu_sgl_put() after writing to flush to guest.
@@ -727,13 +732,37 @@ static void activate_device(PVRDMADev *dev)
     union ibv_gid default_gid;
     int ret;
 
+    if (dev->backend_dev.identity) {
+        uint16_t required = PVRDMA_BACKEND_F_IDENTITY_MIRROR |
+                            PVRDMA_BACKEND_F_GID_BIND_REQUIRED;
+
+        dev->effective_version = MIN(PVRDMA_MLNX_VERSION,
+                                     dev->dsr_info.dsr->driver_version);
+        if (dev->effective_version < PVRDMA_MLNX_VERSION ||
+            (dev->dsr_info.dsr->caps.mesh_flags & required) != required) {
+            rdma_error_report(
+                "MLNX activation rejected: driver=%u features=%#x",
+                dev->dsr_info.dsr->driver_version,
+                dev->dsr_info.dsr->caps.mesh_flags);
+            set_reg_val(dev, PVRDMA_REG_ERR, EPROTO);
+            return;
+        }
+    } else {
+        dev->effective_version = MIN(PVRDMA_HW_VERSION,
+                                     dev->dsr_info.dsr->driver_version);
+    }
+
     rdma_info_report("activate_device: Activating device (backend=%s)",
                      dev->backend_dev.context ? "available" : "not available");
     pvrdma_start(dev);
     set_reg_val(dev, PVRDMA_REG_ERR, 0);
     rdma_info_report("activate_device: Device activated successfully");
 
-    /* Initialize default GID (index 0) for TCP mesh backend */
+    if (dev->backend_dev.identity) {
+        return;
+    }
+
+    /* Initialize the synthetic default GID only for legacy backends. */
     /* The backend will set node-specific GID if in mesh mode */
     memset(&default_gid, 0, sizeof(default_gid));
     default_gid.raw[0] = 0xfe;
@@ -744,7 +773,8 @@ static void activate_device(PVRDMADev *dev)
     /* Last bytes will be set by tcp_add_gid if in mesh mode */
 
     ret = rdma_rm_add_gid(&dev->rdma_dev_res, &dev->backend_dev,
-                          dev->backend_eth_device_name, &default_gid, 0);
+                          dev->backend_eth_device_name, &default_gid, 0, 0,
+                          0xfff, 1024);
     if (ret == 0) {
         rdma_info_report("activate_device: Initialized default GID at index 0");
     } else {
@@ -950,7 +980,7 @@ void pvrdma_uar_write_impl(void *opaque, hwaddr addr, uint64_t val,
         if (val & PVRDMA_UAR_CQ_ARM) {
             rdma_rm_req_notify_cq(&dev->rdma_dev_res,
                                   val & PVRDMA_UAR_HANDLE_MASK,
-                                  !!(val & PVRDMA_UAR_CQ_ARM_SOL));
+                                  false);
         }
         if (val & PVRDMA_UAR_CQ_ARM_SOL) {
             rdma_warn_report("CQ ARM SOL not supported");

@@ -138,6 +138,7 @@ endif()
 set(RDMA_BACKEND_SOURCES
     src/from-qemu/hw/rdma/rdma_backend.c
     src/from-qemu/hw/rdma/rdma_backend_core.c
+    src/from-qemu/hw/rdma/rdma_backend_mlnx.c
     src/from-qemu/hw/rdma/rdma_backend_none.c
     src/from-qemu/hw/rdma/rdma_backend_loopback.c
     src/from-qemu/hw/rdma/rdma_backend_tcp.c

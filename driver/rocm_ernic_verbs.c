@@ -153,7 +153,10 @@ int rocm_ernic_query_port(struct ib_device *ibdev, u32 port,
     props->gid_tbl_len = resp->attrs.gid_tbl_len;
     props->port_cap_flags =
         rocm_ernic_port_cap_flags_to_ib(resp->attrs.port_cap_flags);
-    props->port_cap_flags |= IB_PORT_CM_SUP;
+    if (!(dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+          (dev->dsr->caps.mesh_flags &
+           ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR)))
+        props->port_cap_flags |= IB_PORT_CM_SUP;
     props->ip_gids = true;
 
     dev_info(&dev->pdev->dev, "query_port: state=%d gid_tbl_len=%d\n",
@@ -351,6 +354,10 @@ int rocm_ernic_alloc_ucontext(struct ib_ucontext *uctx, struct ib_udata *udata)
     /* copy back to user (tolerate outlen=0 from providers
      * that don't request driver-specific response data) */
     uresp.qp_tab_size = vdev->dsr->caps.max_qp;
+    if (vdev->dsr_version >= ROCM_ERNIC_MLNX_VERSION) {
+        uresp.uar_mmap_offset = (u64)context->uar.pfn << PAGE_SHIFT;
+        uresp.uar_cq_offset = ROCM_ERNIC_UAR_CQ_OFFSET;
+    }
     if (udata && udata->outlen >= sizeof(uresp)) {
         ret = ib_copy_to_udata(udata, &uresp, sizeof(uresp));
         if (ret) {

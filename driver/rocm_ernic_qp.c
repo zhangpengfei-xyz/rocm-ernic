@@ -211,6 +211,9 @@ int rocm_ernic_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
     int ret;
     bool is_srq = !!init_attr->srq;
     bool dv_mode = false;
+    bool identity = dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+                    (dev->dsr->caps.mesh_flags &
+                     ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR);
 
     if (init_attr->create_flags) {
         dev_warn(&dev->pdev->dev, "invalid create queuepair flags %#x\n",
@@ -218,8 +221,9 @@ int rocm_ernic_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
         return -EOPNOTSUPP;
     }
 
-    if (init_attr->qp_type != IB_QPT_RC && init_attr->qp_type != IB_QPT_UD &&
-        init_attr->qp_type != IB_QPT_GSI) {
+    if ((identity && init_attr->qp_type != IB_QPT_RC) ||
+        (init_attr->qp_type != IB_QPT_RC && init_attr->qp_type != IB_QPT_UD &&
+         init_attr->qp_type != IB_QPT_GSI)) {
         dev_warn(&dev->pdev->dev, "queuepair type %d not supported\n",
                  init_attr->qp_type);
         return -EOPNOTSUPP;
@@ -466,7 +470,12 @@ int rocm_ernic_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
     }
 
     spin_lock_irqsave(&dev->qp_tbl_lock, flags);
-    dev->qp_tbl[qp->qp_handle % dev->dsr->caps.max_qp] = qp;
+    if (qp->qp_handle >= dev->dsr->caps.max_qp) {
+        spin_unlock_irqrestore(&dev->qp_tbl_lock, flags);
+        ret = -EPROTO;
+        goto err_destroy_qp;
+    }
+    dev->qp_tbl[qp->qp_handle] = qp;
     spin_unlock_irqrestore(&dev->qp_tbl_lock, flags);
 
     if (udata) {
@@ -491,6 +500,10 @@ int rocm_ernic_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 
     return 0;
 
+err_destroy_qp:
+    __rocm_ernic_destroy_qp(dev, qp);
+    return ret;
+
 err_pdir:
     rocm_ernic_page_dir_cleanup(dev, &qp->pdir);
 err_umem:
@@ -507,7 +520,8 @@ static void _rocm_ernic_free_qp(struct rocm_ernic_qp *qp)
     struct rocm_ernic_dev *dev = to_vdev(qp->ibqp.device);
 
     spin_lock_irqsave(&dev->qp_tbl_lock, flags);
-    dev->qp_tbl[qp->qp_handle] = NULL;
+    if (qp->qp_handle < dev->dsr->caps.max_qp)
+        dev->qp_tbl[qp->qp_handle] = NULL;
     spin_unlock_irqrestore(&dev->qp_tbl_lock, flags);
 
     if (refcount_dec_and_test(&qp->refcnt))
@@ -649,7 +663,6 @@ int rocm_ernic_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
         goto out;
     }
 
-    qp->state = next_state;
     memset(cmd, 0, sizeof(*cmd));
     cmd->hdr.cmd = ROCM_ERNIC_CMD_MODIFY_QP;
     cmd->qp_handle = qp->qp_handle;
@@ -692,8 +705,11 @@ int rocm_ernic_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
         ret = -EINVAL;
     }
 
-    if (ret == 0 && next_state == IB_QPS_RESET)
-        rocm_ernic_reset_qp(qp);
+    if (ret == 0) {
+        qp->state = next_state;
+        if (next_state == IB_QPS_RESET)
+            rocm_ernic_reset_qp(qp);
+    }
 
 out:
     mutex_unlock(&qp->mutex);
@@ -746,6 +762,9 @@ int rocm_ernic_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
     unsigned long flags;
     struct rocm_ernic_sq_wqe_hdr *wqe_hdr;
     struct rocm_ernic_sge *sge;
+    bool identity = dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+                    (dev->dsr->caps.mesh_flags &
+                     ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR);
     int i, ret;
 
     /*
@@ -761,6 +780,14 @@ int rocm_ernic_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
 
     while (wr) {
         unsigned int tail = 0;
+
+        if (identity &&
+            (wr->opcode != IB_WR_SEND ||
+             (wr->send_flags & ~IB_SEND_SIGNALED))) {
+            *bad_wr = wr;
+            ret = -EOPNOTSUPP;
+            goto out;
+        }
 
         if (unlikely(!rocm_ernic_idx_ring_has_space(qp->sq.ring, qp->sq.wqe_cnt,
                                                     &tail))) {

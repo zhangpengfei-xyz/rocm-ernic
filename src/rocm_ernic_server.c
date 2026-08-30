@@ -29,6 +29,7 @@
 #include <getopt.h>
 #include <assert.h>
 #include <time.h>
+#include <arpa/inet.h>
 
 #include <vfio-user/libvfio-user.h>
 #include <vfio-user/pci_defs.h>
@@ -546,7 +547,7 @@ static void usage(const char *progname)
     fprintf(stderr, "  -s, --socket PATH    Socket path (default: %s)\n",
             DEFAULT_SOCKET_PATH);
     fprintf(stderr,
-            "  -b, --backend TYPE   RDMA backend: none|loopback|verbs|tcp\n");
+            "  -b, --backend TYPE   RDMA backend: none|loopback|mlnx|tcp\n");
     fprintf(stderr, "                       (default: loopback)\n");
     fprintf(stderr, "  -v, --verbose        Enable verbose logging\n");
     fprintf(stderr, "  -S, --stats-file PATH Statistics output file path\n");
@@ -595,27 +596,24 @@ static void usage(const char *progname)
     fprintf(stderr,
             "                      loopback:mode=zeros         - All zeros, no "
             "MD5\n");
-    fprintf(stderr, "  verbs: libibverbs hardware backend\n");
+    fprintf(stderr, "  mlnx: MLNX identity-mirror RoCE v2 backend\n");
     fprintf(stderr, "                    Options (comma-separated):\n");
     fprintf(stderr,
-            "                      device=NAME   - InfiniBand device name "
+            "                      device=NAME - RDMA device name "
             "(required)\n");
     fprintf(stderr,
-            "                      ethdev=NAME  - Ethernet device name for GID "
-            "resolution\n");
+            "                      ethdev=NAME  - Paired Ethernet device "
+            "(required)\n");
     fprintf(
         stderr,
-        "                      port=NUM     - IB port number (default: 1)\n");
+        "                      port=1,roce=v2,ip=ADDR,mirror-mac=on\n");
     fprintf(stderr, "                    Examples:\n");
     fprintf(stderr,
-            "                      verbs:device=mlx5_0                    - "
-            "Device only\n");
+            "                      mlnx:device=mlx5_0,ethdev=eth0,port=1,"
+            "roce=v2,ip=192.0.2.10,mirror-mac=on\n");
     fprintf(stderr,
-            "                      verbs:device=mlx5_0,ethdev=eth0         - "
-            "Device and ethdev\n");
-    fprintf(stderr,
-            "                      verbs:device=mlx5_0,ethdev=eth0,port=1 - "
-            "All options\n");
+            "                    The legacy 'verbs:' prefix is accepted as "
+            "an alias.\n");
     fprintf(stderr, "  tcp: TCP/IP network backend\n");
     fprintf(stderr,
             "                    Manager Mode (centralized discovery):\n");
@@ -636,7 +634,7 @@ static void usage(const char *progname)
 
 /**
  * Determine backend type from backend string
- * @backend_str: Backend string (e.g., "none", "loopback", "verbs:mlx5_0")
+ * @backend_str: Backend string (e.g., "none", "loopback", "mlnx:...")
  * @return: Backend type string for comparison
  */
 static const char *get_backend_type_base(const char *backend_str)
@@ -648,7 +646,10 @@ static const char *get_backend_type_base(const char *backend_str)
         return "loopback";
     }
     if (!strncmp(backend_str, "verbs", 5)) {
-        return "verbs";
+        return "mlnx";
+    }
+    if (!strncmp(backend_str, "mlnx", 4)) {
+        return "mlnx";
     }
     if (!strncmp(backend_str, "tcp", 3)) {
         return "tcp";
@@ -657,19 +658,19 @@ static const char *get_backend_type_base(const char *backend_str)
 }
 
 /**
- * Parse comma-separated verbs backend options with key=value syntax
- * Format: verbs:device=NAME[,ethdev=NAME][,port=NUM]
- * @backend_str: Backend string (e.g., "verbs:device=mlx5_0" or
- *              "verbs:device=mlx5_0,ethdev=eth0,port=1")
+ * Parse the strict MLNX identity-mirror backend key=value configuration.
+ * Both "mlnx:" and the compatibility alias "verbs:" use this grammar.
  * @device: Output parameter for device name (caller must free)
  * @ethdev: Output parameter for ethdev name (caller must free)
  * @port: Output parameter for port number
  * @return: 0 on success, -1 on error
  */
-static int parse_verbs_options(const char *backend_str, char **device,
-                               char **ethdev, uint8_t *port)
+static int parse_mlnx_options(const char *backend_str, char **device,
+                              char **ethdev, uint8_t *port)
 {
     const char *colon = strchr(backend_str, ':');
+    bool seen_device = false, seen_ethdev = false, seen_port = false;
+    bool seen_roce = false, seen_ip = false, seen_mirror = false;
     if (!colon) {
         return -1;
     }
@@ -690,33 +691,26 @@ static int parse_verbs_options(const char *backend_str, char **device,
 
     while (token) {
         char *equals = strchr(token, '=');
-        if (!equals) {
-            /* Legacy format: just device name without key=value */
-            if (!*device) {
-                *device = strdup(token);
-                if (!*device) {
-                    free(options_copy);
-                    return -1;
-                }
-            }
+        if (!equals || equals == token || !equals[1] || strchr(equals + 1, '=')) {
+            free(options_copy);
+            return -1;
         } else {
             *equals = '\0';
             char *key = token;
             char *value = equals + 1;
 
             if (!strcmp(key, "device")) {
-                if (*device) {
-                    free(*device);
-                }
+                if (seen_device)
+                    goto invalid;
                 *device = strdup(value);
                 if (!*device) {
                     free(options_copy);
                     return -1;
                 }
+                seen_device = true;
             } else if (!strcmp(key, "ethdev")) {
-                if (*ethdev) {
-                    free(*ethdev);
-                }
+                if (seen_ethdev)
+                    goto invalid;
                 *ethdev = strdup(value);
                 if (!*ethdev) {
                     free(options_copy);
@@ -724,31 +718,51 @@ static int parse_verbs_options(const char *backend_str, char **device,
                     *device = NULL;
                     return -1;
                 }
+                seen_ethdev = true;
             } else if (!strcmp(key, "port")) {
-                int port_val = atoi(value);
-                if (port_val < 1 || port_val > 255) {
-                    fprintf(stderr,
-                            "Error: Invalid port number '%s' (must be "
-                            "1-255)\n",
-                            value);
-                    free(options_copy);
-                    free(*device);
-                    free(*ethdev);
-                    *device = NULL;
-                    *ethdev = NULL;
-                    return -1;
-                }
+                char *end = NULL;
+                long port_val;
+                if (seen_port)
+                    goto invalid;
+                errno = 0;
+                port_val = strtol(value, &end, 10);
+                if (errno || !end || *end || port_val != 1)
+                    goto invalid;
                 *port = (uint8_t)port_val;
+                seen_port = true;
+            } else if (!strcmp(key, "roce")) {
+                if (seen_roce || strcmp(value, "v2"))
+                    goto invalid;
+                seen_roce = true;
+            } else if (!strcmp(key, "ip")) {
+                struct in_addr addr;
+                if (seen_ip || inet_pton(AF_INET, value, &addr) != 1)
+                    goto invalid;
+                seen_ip = true;
+            } else if (!strcmp(key, "mirror-mac")) {
+                if (seen_mirror || strcmp(value, "on"))
+                    goto invalid;
+                seen_mirror = true;
             } else {
-                fprintf(stderr,
-                        "Warning: Unknown verbs option '%s', ignoring\n", key);
+                goto invalid;
             }
         }
         token = strtok_r(NULL, ",", &saveptr);
     }
 
+    if (seen_device && seen_ethdev && seen_port && seen_roce && seen_ip &&
+        seen_mirror) {
+        free(options_copy);
+        return 0;
+    }
+
+invalid:
     free(options_copy);
-    return 0;
+    free(*device);
+    free(*ethdev);
+    *device = NULL;
+    *ethdev = NULL;
+    return -1;
 }
 
 /**
@@ -759,17 +773,17 @@ static int parse_verbs_options(const char *backend_str, char **device,
 static int validate_backend_options(rocm_ernic_dev_t *dev)
 {
     const char *backend_type = get_backend_type_base(dev->backend_type_str);
-    bool is_verbs = !strcmp(backend_type, "verbs");
+    bool is_mlnx = !strcmp(backend_type, "mlnx");
 
-    /* For verbs backend, parse options from backend string */
-    if (is_verbs) {
+    /* Parse the complete identity configuration from the backend string. */
+    if (is_mlnx) {
         char *device = NULL;
         char *ethdev = NULL;
         uint8_t port = 1;
 
         /* Parse comma-separated options from backend string */
-        if (parse_verbs_options(dev->backend_type_str, &device, &ethdev,
-                                &port) == 0) {
+        if (parse_mlnx_options(dev->backend_type_str, &device, &ethdev,
+                               &port) == 0) {
             /* Override with parsed values if not set via command-line */
             if (device && !dev->backend_device_name) {
                 dev->backend_device_name = device;
@@ -786,25 +800,54 @@ static int validate_backend_options(rocm_ernic_dev_t *dev)
             if (port != 1 && dev->backend_port_num == 1) {
                 dev->backend_port_num = port;
             }
-        }
-
-        /* Device name is required for verbs backend */
-        if (!dev->backend_device_name) {
+        } else {
             fprintf(stderr,
-                    "Error: Device name required for 'verbs' backend\n");
-            fprintf(stderr,
-                    "  Use: --backend verbs:device=NAME[,ethdev=NAME][,port="
-                    "NUM]\n");
-            fprintf(stderr, "  Example: --backend verbs:device=mlx5_0\n");
-            fprintf(stderr,
-                    "  Example: --backend verbs:device=mlx5_0,ethdev=eth0\n");
-            fprintf(stderr,
-                    "  Example: --backend verbs:device=mlx5_0,ethdev=eth0,port="
-                    "1\n");
+                    "Error: MLNX requires exactly device,ethdev,port=1,roce=v2,ip,mirror-mac=on\n");
             return -1;
         }
+
+        /* Device name is required for the MLNX backend. */
+        if (!dev->backend_device_name) {
+            fprintf(stderr,
+                    "Error: Device name required for 'mlnx' backend\n");
+            fprintf(stderr,
+                    "  Use: --backend mlnx:device=mlx5_0,ethdev=ens10np0,port=1,roce=v2,ip=ADDRESS,mirror-mac=on\n");
+            return -1;
+        }
+
+        /* MLNX identity is read-only: the guest MAC must mirror ethdev. */
+        {
+            char path[PATH_MAX];
+            unsigned int mac[6];
+            uint8_t physical_mac[6];
+            FILE *fp;
+
+            snprintf(path, sizeof(path), "/sys/class/net/%s/address",
+                     dev->backend_eth_device);
+            fp = fopen(path, "re");
+            if (!fp || fscanf(fp, "%02x:%02x:%02x:%02x:%02x:%02x",
+                              &mac[0], &mac[1], &mac[2], &mac[3], &mac[4],
+                              &mac[5]) != 6) {
+                if (fp)
+                    fclose(fp);
+                fprintf(stderr, "Error: cannot read MAC for %s\n",
+                        dev->backend_eth_device);
+                return -1;
+            }
+            fclose(fp);
+            for (size_t i = 0; i < 6; i++)
+                physical_mac[i] = (uint8_t)mac[i];
+            if (dev->mac_addr_set &&
+                memcmp(dev->mac_addr, physical_mac, sizeof(physical_mac))) {
+                fprintf(stderr,
+                        "Error: --mac must match the MLNX physical MAC\n");
+                return -1;
+            }
+            memcpy(dev->mac_addr, physical_mac, sizeof(physical_mac));
+            dev->mac_addr_set = true;
+        }
     } else {
-        /* For non-verbs backends, clear any backend-specific options */
+        /* For non-MLNX backends, clear any backend-specific options. */
         if (dev->backend_device_name) {
             free(dev->backend_device_name);
             dev->backend_device_name = NULL;
@@ -971,8 +1014,8 @@ int main(int argc, char *argv[])
         printf("  Log file: %s\n", log_file_path);
     }
 
-    /* Show backend-specific options only for verbs backend */
-    if (!strcmp(get_backend_type_base(dev->backend_type_str), "verbs")) {
+    /* Show backend-specific options only for the MLNX backend. */
+    if (!strcmp(get_backend_type_base(dev->backend_type_str), "mlnx")) {
         if (dev->backend_device_name) {
             printf("  IB Device: %s\n", dev->backend_device_name);
         }
@@ -987,7 +1030,7 @@ int main(int argc, char *argv[])
     printf("  ✓ BAR0/1/2 access\n");
     printf("  ✓ DSR register handling (QEMU integration)\n");
     printf("  ✓ Command channel framework\n");
-    printf("  ✓ Multi-backend support (none/loopback/verbs)\n");
+    printf("  ✓ Multi-backend support (none/loopback/mlnx/tcp)\n");
     printf("  ⚠ Full command processing (in progress)\n");
     printf("\n");
 

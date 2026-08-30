@@ -104,10 +104,10 @@ enum {
 };
 
 enum {
-    ROCM_ERNIC_WR_FLAG_SIGNALED = 1 << 0,
-    ROCM_ERNIC_WR_FLAG_SOLICITED = 1 << 1,
-    ROCM_ERNIC_WR_FLAG_INLINE = 1 << 2,
-    ROCM_ERNIC_WR_FLAG_FENCE = 1 << 3,
+    ROCM_ERNIC_WR_FLAG_FENCE = 1 << 0,
+    ROCM_ERNIC_WR_FLAG_SIGNALED = 1 << 1,
+    ROCM_ERNIC_WR_FLAG_SOLICITED = 1 << 2,
+    ROCM_ERNIC_WR_FLAG_INLINE = 1 << 3,
 };
 
 static size_t align_up(size_t v, size_t a)
@@ -362,6 +362,7 @@ enum {
 };
 
 #define ROCM_ERNIC_UAR_CQ_OFFSET 4
+#define ROCM_ERNIC_UAR_CQ_ARM    (1U << 30)
 #define ROCM_ERNIC_UAR_CQ_POLL   (1U << 31)
 
 static enum ibv_wc_opcode rocm_wc_opcode(uint32_t op)
@@ -424,7 +425,9 @@ static int rocm_ernic_poll_one(struct rocm_ernic_cq *cq,
     wc->opcode = rocm_wc_opcode(cqe->opcode);
     wc->byte_len = cqe->byte_len;
     wc->imm_data = cqe->imm_data;
-    wc->qp_num = (uint32_t)(cqe->qp & 0xffff);
+    wc->qp_num = (uint32_t)(cqe->qp >> 32);
+    if (!wc->qp_num)
+        wc->qp_num = (uint32_t)cqe->qp;
     wc->src_qp = cqe->src_qp;
     wc->wc_flags = cqe->wc_flags;
     wc->pkey_index = cqe->pkey_index;
@@ -454,7 +457,20 @@ int rocm_ernic_poll_cq_v(struct ibv_cq *ibcq, int ne, struct ibv_wc *wc)
 
 int rocm_ernic_req_notify_cq_v(struct ibv_cq *cq, int solicited_only)
 {
-    return ibv_cmd_req_notify_cq(cq, solicited_only);
+    struct rocm_ernic_cq *vcq = to_rocm_ernic_cq(cq);
+    struct rocm_ernic_context *ctx = to_rocm_ernic_ctx(cq->context);
+    volatile uint32_t *db;
+
+    if (solicited_only)
+        return EOPNOTSUPP;
+    if (!ctx->uar_ptr)
+        return EIO;
+
+    db = (volatile uint32_t *)((char *)ctx->uar_ptr + ctx->uar_cq_offset);
+    *db = htole32(vcq->cqn | ROCM_ERNIC_UAR_CQ_ARM);
+    atomic_thread_fence(memory_order_seq_cst);
+    (void)*db;
+    return 0;
 }
 
 struct ibv_qp *rocm_ernic_create_qp_v(struct ibv_pd *pd,
@@ -626,9 +642,17 @@ int rocm_ernic_post_send_v(struct ibv_qp *ibqp, struct ibv_send_wr *wr,
         uint32_t tail = 0;
         struct rocm_ernic_sq_wqe_hdr *wqe;
         struct rocm_ernic_sge *sge;
+        int sq_status;
         int i;
 
-        int sq_status = ring_has_space(qp->sq_ring, qp->sq_depth, &tail);
+        if (wr->opcode != IBV_WR_SEND ||
+            (wr->send_flags & ~IBV_SEND_SIGNALED)) {
+            *bad_wr = wr;
+            ret = EOPNOTSUPP;
+            break;
+        }
+
+        sq_status = ring_has_space(qp->sq_ring, qp->sq_depth, &tail);
         if (sq_status <= 0) {
             *bad_wr = wr;
             ret = (sq_status < 0) ? EINVAL : ENOMEM;

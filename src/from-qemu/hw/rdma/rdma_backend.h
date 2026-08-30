@@ -34,6 +34,7 @@
 #define VENDOR_ERR_INV_MAD_BUFF  0x209
 #define VENDOR_ERR_INV_GID_IDX   0x210
 #define VENDOR_ERR_INV_QP_TYPE   0x211
+#define VENDOR_ERR_UNSUPPORTED   0x212
 
 /* Add definition for QP0 and QP1 as there is no userspace enums for them */
 enum ibv_special_qp_type {
@@ -76,7 +77,8 @@ int rdma_backend_init(RdmaBackendDev *backend_dev, PCIDevice *pdev,
                       CharBackend *mad_chr_be);
 void rdma_backend_fini(RdmaBackendDev *backend_dev);
 int rdma_backend_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                         union ibv_gid *gid);
+                         union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                         uint32_t vlan, uint32_t mtu);
 int rdma_backend_del_gid(RdmaBackendDev *backend_dev, const char *ifname,
                          union ibv_gid *gid, int gid_idx);
 int rdma_backend_get_gid_index(RdmaBackendDev *backend_dev, union ibv_gid *gid);

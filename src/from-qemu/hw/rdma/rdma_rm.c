@@ -33,6 +33,7 @@
 #include "qemu/cutils.h"   /* For ROUND_UP */
 #include "qemu/thread.h"   /* For QEMU_LOCK_GUARD */
 #include "rdma_utils.h"
+#include "hw/rdma/rdma.h"
 #include "rdma_backend.h"
 #include "rdma_backend_ops.h" /* For RdmaBackendOps definition */
 #include "rdma_rm.h"
@@ -146,7 +147,7 @@ static inline void *rdma_res_tbl_alloc(RdmaRmResTbl *tbl, uint32_t *handle)
     qemu_mutex_lock(&tbl->lock);
 
     *handle = find_first_zero_bit(tbl->bitmap, tbl->tbl_sz);
-    if (*handle > tbl->tbl_sz) {
+    if (*handle >= tbl->tbl_sz) {
         rdma_error_report("Table %s, failed to allocate, bitmap is full",
                           tbl->name);
         qemu_mutex_unlock(&tbl->lock);
@@ -240,8 +241,10 @@ void rdma_rm_dealloc_pd(RdmaDeviceResources *dev_res, uint32_t pd_handle)
 }
 
 int rdma_rm_alloc_mr(RdmaDeviceResources *dev_res, uint32_t pd_handle,
-                     uint64_t guest_start, uint64_t guest_length,
-                     void *host_virt, int access_flags, uint32_t *mr_handle,
+                     uint64_t guest_start, uint64_t guest_iova,
+                     uint64_t guest_length,
+                     GuestMemoryLease *lease, int access_flags,
+                     uint32_t *mr_handle,
                      uint32_t *lkey, uint32_t *rkey)
 {
     RdmaRmMR *mr;
@@ -260,9 +263,11 @@ int rdma_rm_alloc_mr(RdmaDeviceResources *dev_res, uint32_t pd_handle,
 
     /* Set MR fields */
     mr->start = guest_start;
+    mr->iova = guest_iova;
     mr->length = guest_length;
-    if (host_virt) {
-        mr->virt = host_virt;
+    mr->lease = lease;
+    if (lease) {
+        mr->virt = lease->alias;
         mr->virt += (mr->start & (PAGE_SIZE - 1));
     } else {
         mr->virt = NULL; /* Loopback backend can work without host_virt */
@@ -272,11 +277,10 @@ int rdma_rm_alloc_mr(RdmaDeviceResources *dev_res, uint32_t pd_handle,
     /* This must be called even if host_virt is NULL (for loopback backend) */
     if (pd->backend_pd.backend_ops && pd->backend_pd.backend_ops->create_mr) {
         ret = pd->backend_pd.backend_ops->create_mr(
-            &mr->backend_mr, &pd->backend_pd, mr->virt, mr->length, guest_start,
+            &mr->backend_mr, &pd->backend_pd, mr->virt, mr->length, guest_iova,
             access_flags);
         if (ret) {
             rdma_error_report("Backend create_mr failed: %d", ret);
-            ret = -EIO;
             goto out_dealloc_mr;
         }
         mr->backend_mr.backend_ops =
@@ -305,7 +309,14 @@ int rdma_rm_alloc_mr(RdmaDeviceResources *dev_res, uint32_t pd_handle,
         *lkey = *mr_handle; /* Use handle as lkey */
     }
 
-    *rkey = -1;
+    if (pd->backend_pd.backend_ops && pd->backend_pd.backend_ops->mr_rkey) {
+        *rkey = pd->backend_pd.backend_ops->mr_rkey(&mr->backend_mr);
+    } else {
+        *rkey = *lkey;
+    }
+    mr->lkey = *lkey;
+    mr->rkey = *rkey;
+    mr->access_flags = access_flags;
 
     mr->pd_handle = pd_handle;
 
@@ -322,6 +333,29 @@ RdmaRmMR *rdma_rm_get_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle)
     return rdma_res_tbl_get(&dev_res->mr_tbl, mr_handle);
 }
 
+RdmaRmMR *rdma_rm_find_mr_by_lkey(RdmaDeviceResources *dev_res, uint32_t lkey)
+{
+    RdmaRmResTbl *tbl = &dev_res->mr_tbl;
+    RdmaRmMR *found = NULL;
+    uint32_t i;
+
+    qemu_mutex_lock(&tbl->lock);
+    for (i = 0; i < tbl->tbl_sz; i++) {
+        RdmaRmMR *mr;
+
+        if (!test_bit(i, tbl->bitmap)) {
+            continue;
+        }
+        mr = tbl->tbl + i * tbl->res_sz;
+        if (mr->lkey == lkey) {
+            found = mr;
+            break;
+        }
+    }
+    qemu_mutex_unlock(&tbl->lock);
+    return found;
+}
+
 void rdma_rm_dealloc_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle)
 {
     RdmaRmMR *mr = rdma_rm_get_mr(dev_res, mr_handle);
@@ -332,11 +366,20 @@ void rdma_rm_dealloc_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle)
             mr->backend_mr.backend_ops->destroy_mr) {
             mr->backend_mr.backend_ops->destroy_mr(&mr->backend_mr);
         }
-        if (mr->virt) {
-            size_t length = ROUND_UP((mr->start & (PAGE_SIZE - 1)) + mr->length, PAGE_SIZE);
+        if (mr->lease) {
+            uint32_t i;
+            GuestMemoryLease *lease = mr->lease;
 
-            mr->virt -= (mr->start & (PAGE_SIZE - 1));
-            munmap(mr->virt, length);
+            munmap(lease->alias, lease->alias_length);
+            for (i = 0; i < lease->page_count; i++) {
+                if (lease->page_mappings[i]) {
+                    rdma_pci_dma_unmap(lease->pdev, lease->page_mappings[i],
+                                       PAGE_SIZE);
+                }
+            }
+            g_free(lease->page_mappings);
+            g_free(lease->page_iovas);
+            g_free(lease);
         }
         rdma_res_tbl_dealloc(&dev_res->mr_tbl, mr_handle);
         rdma_info_report("rdma_rm_dealloc_mr: Deallocated MR handle %u",
@@ -434,7 +477,7 @@ out_dealloc_cq:
 }
 
 void rdma_rm_req_notify_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle,
-                           bool notify)
+                           bool solicited_only)
 {
     RdmaRmCQ *cq;
 
@@ -443,8 +486,12 @@ void rdma_rm_req_notify_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle,
         return;
     }
 
-    if (cq->notify != CNT_SET) {
-        cq->notify = notify ? CNT_ARM : CNT_CLEAR;
+    if (solicited_only) {
+        return;
+    }
+
+    if (qatomic_read(&cq->notify) != CNT_SET) {
+        qatomic_set(&cq->notify, CNT_ARM);
     }
 }
 
@@ -466,26 +513,17 @@ void rdma_rm_dealloc_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle)
     rdma_info_report("rdma_rm_dealloc_cq: Deallocated CQ handle %u", cq_handle);
 }
 
-RdmaRmQP *rdma_rm_get_qp(RdmaDeviceResources *dev_res, uint32_t qpn)
+RdmaRmQP *rdma_rm_get_qp(RdmaDeviceResources *dev_res, uint32_t qp_handle)
 {
-    GBytes *key = g_bytes_new(&qpn, sizeof(qpn));
-
-    RdmaRmQP *qp = g_hash_table_lookup(dev_res->qp_hash, key);
-
-    g_bytes_unref(key);
-
-    if (!qp) {
-        rdma_error_report("Invalid QP handle %d", qpn);
-    }
-
-    return qp;
+    return rdma_res_tbl_get(&dev_res->qp_tbl, qp_handle);
 }
 
 int rdma_rm_alloc_qp(RdmaDeviceResources *dev_res, uint32_t pd_handle,
                      uint8_t qp_type, uint32_t max_send_wr,
                      uint32_t max_send_sge, uint32_t send_cq_handle,
                      uint32_t max_recv_wr, uint32_t max_recv_sge,
-                     uint32_t recv_cq_handle, void *opaque, uint32_t *qpn,
+                     uint32_t recv_cq_handle, void *opaque,
+                     uint32_t *qp_handle, uint32_t *qpn, uint8_t sq_sig_all,
                      uint8_t is_srq, uint32_t srq_handle)
 {
     int rc;
@@ -529,11 +567,13 @@ int rdma_rm_alloc_qp(RdmaDeviceResources *dev_res, uint32_t pd_handle,
         return -ENOMEM;
     }
 
-    qp->qpn = rm_qpn;
+    qp->handle = rm_qpn;
+    qp->pd_handle = pd_handle;
     qp->qp_state = IBV_QPS_RESET;
     qp->qp_type = qp_type;
     qp->send_cq_handle = send_cq_handle;
     qp->recv_cq_handle = recv_cq_handle;
+    qp->sq_sig_all = !!sq_sig_all;
     rdma_info_report(
         ">>> rdma_rm_alloc_qp: sizeof(RdmaRmQP)=%zu, sizeof(RdmaBackendQP)=%zu",
         sizeof(RdmaRmQP), sizeof(RdmaBackendQP));
@@ -583,24 +623,27 @@ int rdma_rm_alloc_qp(RdmaDeviceResources *dev_res, uint32_t pd_handle,
         *qpn = rm_qpn; /* Use local QPN */
     }
 
-    g_hash_table_insert(dev_res->qp_hash, g_bytes_new(qpn, sizeof(*qpn)), qp);
+    qp->qpn = *qpn;
+    *qp_handle = rm_qpn;
+
+    g_hash_table_insert(dev_res->qp_hash,
+                        g_bytes_new(qp_handle, sizeof(*qp_handle)), qp);
 
     return 0;
 
 out_dealloc_qp:
-    rdma_res_tbl_dealloc(&dev_res->qp_tbl, qp->qpn);
+    rdma_res_tbl_dealloc(&dev_res->qp_tbl, qp->handle);
 
     return rc;
 }
 
 int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
-                      uint32_t qp_handle, uint32_t attr_mask, uint8_t sgid_idx,
-                      union ibv_gid *dgid, uint32_t dqpn,
-                      enum ibv_qp_state qp_state, uint32_t qkey,
-                      uint32_t rq_psn, uint32_t sq_psn)
+                      uint32_t qp_handle, uint32_t attr_mask,
+                      const RdmaBackendQpAttr *attr)
 {
     RdmaRmQP *qp;
     int ret;
+    int sgid_idx;
 
     qp = rdma_rm_get_qp(dev_res, qp_handle);
     if (!qp) {
@@ -615,14 +658,23 @@ int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
     }
 
     if (attr_mask & IBV_QP_STATE) {
-        qp->qp_state = qp_state;
+        if (qp->backend_qp.backend_ops &&
+            qp->backend_qp.backend_ops->modify_qp) {
+            ret = qp->backend_qp.backend_ops->modify_qp(
+                backend_dev, &qp->backend_qp, qp->qp_type, attr_mask, attr);
+            if (ret) {
+                return ret;
+            }
+            qp->qp_state = attr->state;
+            return 0;
+        }
 
         /* Call backend state transitions using vtable dispatch */
         if (qp->backend_qp.backend_ops) {
-            if (qp->qp_state == IBV_QPS_INIT &&
+            if (attr->state == IBV_QPS_INIT &&
                 qp->backend_qp.backend_ops->qp_state_init) {
                 ret = qp->backend_qp.backend_ops->qp_state_init(
-                    backend_dev, &qp->backend_qp, qp->qp_type, qkey);
+                    backend_dev, &qp->backend_qp, qp->qp_type, attr->qkey);
                 if (ret) {
                     rdma_error_report("Backend qp_state_init failed: %d", ret);
                     return -EIO;
@@ -632,16 +684,16 @@ int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                     qp_handle, qp->backend_qp.backend_ops->name);
             }
 
-            if (qp->qp_state == IBV_QPS_RTR &&
+            if (attr->state == IBV_QPS_RTR &&
                 qp->backend_qp.backend_ops->qp_state_rtr) {
+                sgid_idx = attr->sgid_index;
                 /* Get backend gid index if backend supports it */
                 if (backend_dev &&
                     qp->backend_qp.backend_ops->get_backend_gid_index) {
-                    sgid_idx =
-                        qp->backend_qp.backend_ops->get_backend_gid_index(
-                            backend_dev, sgid_idx);
-                    if ((int8_t)sgid_idx <
-                        0) { /* GID index 0 is valid, only negative is error */
+                    sgid_idx = qp->backend_qp.backend_ops
+                                   ->get_backend_gid_index(backend_dev,
+                                                           sgid_idx);
+                    if (sgid_idx < 0) {
                         rdma_error_report(
                             "Failed to get backend sgid_idx for sgid_idx %d",
                             sgid_idx);
@@ -650,8 +702,9 @@ int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                 }
 
                 ret = qp->backend_qp.backend_ops->qp_state_rtr(
-                    backend_dev, &qp->backend_qp, qp->qp_type, sgid_idx, dgid,
-                    dqpn, rq_psn, qkey, attr_mask & IBV_QP_QKEY);
+                    backend_dev, &qp->backend_qp, qp->qp_type, sgid_idx,
+                    (union ibv_gid *)&attr->dgid, attr->dest_qpn, attr->rq_psn,
+                    attr->qkey, attr_mask & IBV_QP_QKEY);
                 if (ret) {
                     rdma_error_report("Backend qp_state_rtr failed: %d", ret);
                     return -EIO;
@@ -661,10 +714,10 @@ int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                     qp_handle, qp->backend_qp.backend_ops->name);
             }
 
-            if (qp->qp_state == IBV_QPS_RTS &&
+            if (attr->state == IBV_QPS_RTS &&
                 qp->backend_qp.backend_ops->qp_state_rts) {
                 ret = qp->backend_qp.backend_ops->qp_state_rts(
-                    &qp->backend_qp, qp->qp_type, sq_psn, qkey,
+                    &qp->backend_qp, qp->qp_type, attr->sq_psn, attr->qkey,
                     attr_mask & IBV_QP_QKEY);
                 if (ret) {
                     rdma_error_report("Backend qp_state_rts failed: %d", ret);
@@ -678,8 +731,9 @@ int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
             /* No backend - just track state locally */
             rdma_info_report(
                 "rdma_rm_modify_qp: No backend, QP %u state transition to %d",
-                qp_handle, qp_state);
+                qp_handle, attr->state);
         }
+        qp->qp_state = attr->state;
     }
 
     return 0;
@@ -739,7 +793,7 @@ void rdma_rm_dealloc_qp(RdmaDeviceResources *dev_res, uint32_t qp_handle)
         qp->backend_qp.backend_ops->destroy_qp(&qp->backend_qp, dev_res);
     }
 
-    rdma_res_tbl_dealloc(&dev_res->qp_tbl, qp->qpn);
+    rdma_res_tbl_dealloc(&dev_res->qp_tbl, qp->handle);
     rdma_info_report("rdma_rm_dealloc_qp: Deallocated QP handle %u", qp_handle);
 }
 
@@ -863,16 +917,19 @@ void rdma_rm_dealloc_cqe_ctx(RdmaDeviceResources *dev_res, uint32_t cqe_ctx_id)
 }
 
 int rdma_rm_add_gid(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
-                    const char *ifname, union ibv_gid *gid, int gid_idx)
+                    const char *ifname, union ibv_gid *gid, int gid_idx,
+                    uint8_t gid_type, uint32_t vlan, uint32_t mtu)
 {
     int rc;
 
-    rc = rdma_backend_add_gid(backend_dev, ifname, gid);
+    rc = rdma_backend_add_gid(backend_dev, ifname, gid, gid_idx, gid_type,
+                              vlan, mtu);
     if (rc) {
         return -EINVAL;
     }
 
     memcpy(&dev_res->port.gid_tbl[gid_idx].gid, gid, sizeof(*gid));
+    dev_res->port.gid_tbl[gid_idx].gid_type = gid_type;
 
     return 0;
 }

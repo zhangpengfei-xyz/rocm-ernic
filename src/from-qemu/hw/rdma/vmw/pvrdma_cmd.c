@@ -37,21 +37,44 @@
 #include "pvrdma.h"
 #include "standard-headers/rdma/vmw_pvrdma-abi.h"
 
-static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
-                                uint32_t nchunks, uint64_t guest_start,
-                                size_t length)
+_Static_assert(sizeof(struct pvrdma_cmd_create_mr) == 56,
+               "v20 CREATE_MR ABI changed");
+_Static_assert(sizeof(struct pvrdma_cmd_create_mr_v2) == 64,
+               "v21 CREATE_MR ABI changed");
+_Static_assert(offsetof(struct pvrdma_cmd_create_mr_v2, iova) == 56,
+               "v21 CREATE_MR iova must remain an appended field");
+_Static_assert(sizeof(struct pvrdma_cmd_create_qp_resp_v2) == 48,
+               "v21 CREATE_QP response ABI changed");
+
+static GuestMemoryLease *pvrdma_map_to_pdir(PCIDevice *pdev,
+                                            uint64_t pdir_dma,
+                                            uint32_t nchunks,
+                                            uint64_t guest_start,
+                                            size_t length)
 {
     uint64_t *dir, *tbl;
     int tbl_idx, dir_idx, addr_idx;
-    void *host_virt = NULL, *curr_page;
+    void *curr_page;
+    GuestMemoryLease *lease = NULL;
 
     if (!nchunks) {
         rdma_error_report("Got nchunks=0");
         return NULL;
     }
+    if (pdir_dma & (PAGE_SIZE - 1)) {
+        rdma_error_report("MR page directory is not 4 KiB aligned");
+        return NULL;
+    }
 
+    if (nchunks > PVRDMA_PAGE_DIR_MAX_PAGES ||
+        length > SIZE_MAX - (guest_start & (PAGE_SIZE - 1)) -
+                     (PAGE_SIZE - 1)) {
+        rdma_error_report("MR page count/length overflow");
+        return NULL;
+    }
     length = ROUND_UP((guest_start & (PAGE_SIZE - 1)) + length, PAGE_SIZE);
-    if ((size_t)nchunks * PAGE_SIZE != length) {
+    if ((size_t)nchunks > SIZE_MAX / PAGE_SIZE ||
+        (size_t)nchunks * PAGE_SIZE != length) {
         rdma_error_report("Invalid nchunks/length (%u, %lu)", nchunks,
                           (unsigned long)length);
         return NULL;
@@ -70,6 +93,10 @@ static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
     rdma_info_report("pvrdma_map_to_pdir: Mapped dir=%p, dir[0]=0x%lx", dir,
                      dir[0]);
 
+    if (!dir[0] || (dir[0] & (PAGE_SIZE - 1))) {
+        rdma_error_report("Invalid first MR page table address");
+        goto out_unmap_dir;
+    }
     tbl = rdma_pci_dma_map(pdev, dir[0], PAGE_SIZE);
     if (!tbl) {
         rdma_error_report("Failed to map to page table 0 (dir[0]=0x%lx)",
@@ -79,36 +106,50 @@ static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
     rdma_info_report("pvrdma_map_to_pdir: Mapped tbl=%p, tbl[0]=0x%lx", tbl,
                      tbl[0]);
 
-    curr_page = rdma_pci_dma_map(pdev, (dma_addr_t)tbl[0], PAGE_SIZE);
-    if (!curr_page) {
-        rdma_error_report("Failed to map the page 0 (tbl[0]=0x%lx)", tbl[0]);
-        rdma_info_report("pvrdma_map_to_pdir: This address likely not in "
-                         "vfio-user DMA regions");
-        goto out_unmap_tbl;
+    lease = g_new0(GuestMemoryLease, 1);
+    lease->page_mappings = g_new0(void *, nchunks);
+    lease->page_iovas = g_new0(uint64_t, nchunks);
+    lease->pdev = pdev;
+    lease->alias_length = length;
+    lease->alias = mmap(NULL, length, PROT_NONE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (lease->alias == MAP_FAILED) {
+        lease->alias = NULL;
+        goto out_free_lease;
     }
-    rdma_info_report("pvrdma_map_to_pdir: Mapped curr_page=%p", curr_page);
-
-    host_virt = mremap(curr_page, 0, length, MREMAP_MAYMOVE);
-    if (host_virt == MAP_FAILED) {
-        host_virt = NULL;
-        rdma_error_report("Failed to remap memory for host_virt");
-        goto out_unmap_tbl;
-    }
-
-    rdma_pci_dma_unmap(pdev, curr_page, PAGE_SIZE);
 
     dir_idx = 0;
-    tbl_idx = 1;
-    addr_idx = 1;
+    tbl_idx = 0;
+    addr_idx = 0;
     while (addr_idx < nchunks) {
+        int previous;
+
         if (tbl_idx == PAGE_SIZE / sizeof(uint64_t)) {
             tbl_idx = 0;
             dir_idx++;
             rdma_pci_dma_unmap(pdev, tbl, PAGE_SIZE);
+            if (!dir[dir_idx] || (dir[dir_idx] & (PAGE_SIZE - 1))) {
+                rdma_error_report("Invalid MR page table address %d", dir_idx);
+                tbl = NULL;
+                goto out_unmap_alias;
+            }
             tbl = rdma_pci_dma_map(pdev, dir[dir_idx], PAGE_SIZE);
             if (!tbl) {
                 rdma_error_report("Failed to map to page table %d", dir_idx);
-                goto out_unmap_host_virt;
+                goto out_unmap_alias;
+            }
+        }
+
+        if (!tbl[tbl_idx] || (tbl[tbl_idx] & (PAGE_SIZE - 1))) {
+            rdma_error_report("Invalid unaligned MR page at index %d",
+                              addr_idx);
+            goto out_unmap_alias;
+        }
+        for (previous = 0; previous < addr_idx; previous++) {
+            if (tbl[tbl_idx] == lease->page_iovas[previous]) {
+                rdma_error_report("Duplicate MR page at indexes %d and %d",
+                                  previous, addr_idx);
+                goto out_unmap_alias;
             }
         }
 
@@ -116,13 +157,20 @@ static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
         if (!curr_page) {
             rdma_error_report("Failed to map to page %d, dir %d", tbl_idx,
                               dir_idx);
-            goto out_unmap_host_virt;
+            goto out_unmap_alias;
         }
 
-        mremap(curr_page, 0, PAGE_SIZE, MREMAP_MAYMOVE | MREMAP_FIXED,
-               host_virt + PAGE_SIZE * addr_idx);
-
-        rdma_pci_dma_unmap(pdev, curr_page, PAGE_SIZE);
+        if (mremap(curr_page, PAGE_SIZE, PAGE_SIZE,
+                   MREMAP_MAYMOVE | MREMAP_FIXED | MREMAP_DONTUNMAP,
+                   (char *)lease->alias + PAGE_SIZE * addr_idx) == MAP_FAILED) {
+            rdma_error_report("Failed to alias MR page %d: %s", addr_idx,
+                              strerror(errno));
+            rdma_pci_dma_unmap(pdev, curr_page, PAGE_SIZE);
+            goto out_unmap_alias;
+        }
+        lease->page_mappings[addr_idx] = curr_page;
+        lease->page_iovas[addr_idx] = tbl[tbl_idx];
+        lease->page_count++;
 
         addr_idx++;
 
@@ -131,17 +179,28 @@ static void *pvrdma_map_to_pdir(PCIDevice *pdev, uint64_t pdir_dma,
 
     goto out_unmap_tbl;
 
-out_unmap_host_virt:
-    munmap(host_virt, length);
-    host_virt = NULL;
+out_unmap_alias:
+    if (lease->alias)
+        munmap(lease->alias, lease->alias_length);
+    while (lease->page_count) {
+        lease->page_count--;
+        rdma_pci_dma_unmap(pdev, lease->page_mappings[lease->page_count],
+                           PAGE_SIZE);
+    }
+out_free_lease:
+    g_free(lease->page_mappings);
+    g_free(lease->page_iovas);
+    g_free(lease);
+    lease = NULL;
 
 out_unmap_tbl:
-    rdma_pci_dma_unmap(pdev, tbl, PAGE_SIZE);
+    if (tbl)
+        rdma_pci_dma_unmap(pdev, tbl, PAGE_SIZE);
 
 out_unmap_dir:
     rdma_pci_dma_unmap(pdev, dir, PAGE_SIZE);
 
-    return host_virt;
+    return lease;
 }
 
 static int query_port(PVRDMADev *dev, union pvrdma_cmd_req *req,
@@ -151,7 +210,7 @@ static int query_port(PVRDMADev *dev, union pvrdma_cmd_req *req,
     struct pvrdma_cmd_query_port_resp *resp = &rsp->query_port_resp;
     struct ibv_port_attr attrs = {};
 
-    if (cmd->port_num > MAX_PORTS) {
+    if (cmd->port_num != 1) {
         return -EINVAL;
     }
 
@@ -177,7 +236,7 @@ static int query_port(PVRDMADev *dev, union pvrdma_cmd_req *req,
     }
 
     /* Ensure ample GID table for mesh/TCP backends */
-    if (attrs.gid_tbl_len < MAX_PORT_GIDS) {
+    if (!dev->backend_dev.identity && attrs.gid_tbl_len < MAX_PORT_GIDS) {
         attrs.gid_tbl_len = MAX_PORT_GIDS;
     }
 
@@ -196,7 +255,8 @@ static int query_port(PVRDMADev *dev, union pvrdma_cmd_req *req,
     resp->attrs.active_mtu = (enum pvrdma_mtu)attrs.active_mtu;
     resp->attrs.phys_state = attrs.phys_state;
     resp->attrs.gid_tbl_len = MIN(MAX_PORT_GIDS, attrs.gid_tbl_len);
-    resp->attrs.max_msg_sz = 1024;
+    resp->attrs.port_cap_flags = attrs.port_cap_flags;
+    resp->attrs.max_msg_sz = attrs.max_msg_sz;
     resp->attrs.pkey_tbl_len = MIN(MAX_PORT_PKEYS, attrs.pkey_tbl_len);
     resp->attrs.active_width = 1;
     resp->attrs.active_speed = 1;
@@ -261,21 +321,38 @@ static int create_mr(PVRDMADev *dev, union pvrdma_cmd_req *req,
                      union pvrdma_cmd_resp *rsp)
 {
     struct pvrdma_cmd_create_mr *cmd = &req->create_mr;
+    struct pvrdma_cmd_create_mr_v2 *cmd_v2 = &req->create_mr_v2;
     struct pvrdma_cmd_create_mr_resp *resp = &rsp->create_mr_resp;
     PCIDevice *pci_dev = PCI_DEVICE(dev);
-    void *host_virt = NULL;
+    GuestMemoryLease *lease = NULL;
+    uint64_t iova = cmd->start;
     int rc = 0;
 
     memset(resp, 0, sizeof(*resp));
+
+    if (dev->backend_dev.identity) {
+        if (dev->effective_version < PVRDMA_MLNX_VERSION) {
+            return -EPROTO;
+        }
+        if (cmd->flags != 0) {
+            return -EOPNOTSUPP;
+        }
+        iova = cmd_v2->iova;
+        if (!cmd->length || cmd->start + cmd->length < cmd->start ||
+            iova + cmd->length < iova ||
+            ((cmd->start ^ iova) & (PAGE_SIZE - 1))) {
+            return -EINVAL;
+        }
+    }
 
     rdma_info_report(
         "create_mr: pd_handle=%u, start=0x%lx, length=%lu, flags=0x%x",
         cmd->pd_handle, cmd->start, cmd->length, cmd->flags);
 
     if (!(cmd->flags & PVRDMA_MR_FLAG_DMA)) {
-        host_virt = pvrdma_map_to_pdir(pci_dev, cmd->pdir_dma, cmd->nchunks,
-                                       cmd->start, cmd->length);
-        if (!host_virt) {
+        lease = pvrdma_map_to_pdir(pci_dev, cmd->pdir_dma, cmd->nchunks,
+                                   cmd->start, cmd->length);
+        if (!lease) {
             /* For loopback backend, we can continue without mapped memory */
             /* The backend just needs metadata (length, keys) */
             rdma_info_report("Failed to map user MR pages - continuing with "
@@ -285,15 +362,21 @@ static int create_mr(PVRDMADev *dev, union pvrdma_cmd_req *req,
         } else {
             rdma_info_report(
                 "create_mr: Successfully mapped %u chunks to host_virt=%p",
-                cmd->nchunks, host_virt);
+                cmd->nchunks, lease->alias);
         }
     }
 
     rc = rdma_rm_alloc_mr(&dev->rdma_dev_res, cmd->pd_handle, cmd->start,
-                          cmd->length, host_virt, cmd->access_flags,
+                          iova, cmd->length, lease, cmd->access_flags,
                           &resp->mr_handle, &resp->lkey, &resp->rkey);
-    if (rc && host_virt) {
-        munmap(host_virt, ROUND_UP((cmd->start & (PAGE_SIZE - 1)) + cmd->length, PAGE_SIZE));
+    if (rc && lease) {
+        uint32_t i;
+        munmap(lease->alias, lease->alias_length);
+        for (i = 0; i < lease->page_count; i++)
+            rdma_pci_dma_unmap(lease->pdev, lease->page_mappings[i], PAGE_SIZE);
+        g_free(lease->page_mappings);
+        g_free(lease->page_iovas);
+        g_free(lease);
     }
 
     if (!rc) {
@@ -602,7 +685,10 @@ static int create_qp(PVRDMADev *dev, union pvrdma_cmd_req *req,
 {
     struct pvrdma_cmd_create_qp *cmd = &req->create_qp;
     struct pvrdma_cmd_create_qp_resp *resp = &rsp->create_qp_resp;
+    struct pvrdma_cmd_create_qp_resp_v2 *resp_v2 = &rsp->create_qp_resp_v2;
     PvrdmaRing *rings = NULL;
+    uint32_t qp_handle;
+    uint32_t qpn;
     int rc;
 
     memset(resp, 0, sizeof(*resp));
@@ -619,17 +705,30 @@ static int create_qp(PVRDMADev *dev, union pvrdma_cmd_req *req,
                           cmd->max_send_wr, cmd->max_send_sge,
                           cmd->send_cq_handle, cmd->max_recv_wr,
                           cmd->max_recv_sge, cmd->recv_cq_handle, rings,
-                          &resp->qpn, cmd->is_srq, cmd->srq_handle);
+                          &qp_handle, &qpn, cmd->sq_sig_all, cmd->is_srq,
+                          cmd->srq_handle);
     if (rc) {
         destroy_qp_rings(rings, cmd->is_srq);
         return rc;
     }
 
-    resp->max_send_wr = cmd->max_send_wr;
-    resp->max_recv_wr = cmd->max_recv_wr;
-    resp->max_send_sge = cmd->max_send_sge;
-    resp->max_recv_sge = cmd->max_recv_sge;
-    resp->max_inline_data = cmd->max_inline_data;
+    if (dev->effective_version >= PVRDMA_QPHANDLE_VERSION) {
+        resp_v2->qpn = qpn;
+        resp_v2->qp_handle = qp_handle;
+        resp_v2->max_send_wr = cmd->max_send_wr;
+        resp_v2->max_recv_wr = cmd->max_recv_wr;
+        resp_v2->max_send_sge = cmd->max_send_sge;
+        resp_v2->max_recv_sge = cmd->max_recv_sge;
+        resp_v2->max_inline_data = 0;
+    } else {
+        /* Legacy frontends use qpn as the resource handle. */
+        resp->qpn = qp_handle;
+        resp->max_send_wr = cmd->max_send_wr;
+        resp->max_recv_wr = cmd->max_recv_wr;
+        resp->max_send_sge = cmd->max_send_sge;
+        resp->max_recv_sge = cmd->max_recv_sge;
+        resp->max_inline_data = cmd->max_inline_data;
+    }
 
     return 0;
 }
@@ -638,15 +737,39 @@ static int modify_qp(PVRDMADev *dev, union pvrdma_cmd_req *req,
                      union pvrdma_cmd_resp *rsp)
 {
     struct pvrdma_cmd_modify_qp *cmd = &req->modify_qp;
+    RdmaBackendQpAttr attr = {
+        .state = (enum ibv_qp_state)cmd->attrs.qp_state,
+        .cur_state = (enum ibv_qp_state)cmd->attrs.cur_qp_state,
+        .access_flags = cmd->attrs.qp_access_flags,
+        .pkey_index = cmd->attrs.pkey_index,
+        .port_num = cmd->attrs.port_num,
+        .path_mtu = (enum ibv_mtu)cmd->attrs.path_mtu,
+        .dest_qpn = cmd->attrs.dest_qp_num,
+        .rq_psn = cmd->attrs.rq_psn,
+        .sq_psn = cmd->attrs.sq_psn,
+        .sgid_index = cmd->attrs.ah_attr.grh.sgid_index,
+        .hop_limit = cmd->attrs.ah_attr.grh.hop_limit,
+        .traffic_class = cmd->attrs.ah_attr.grh.traffic_class,
+        .flow_label = cmd->attrs.ah_attr.grh.flow_label,
+        .sl = cmd->attrs.ah_attr.sl,
+        .dlid = cmd->attrs.ah_attr.dlid,
+        .src_path_bits = cmd->attrs.ah_attr.src_path_bits,
+        .ah_flags = cmd->attrs.ah_attr.ah_flags,
+        .ah_port_num = cmd->attrs.ah_attr.port_num,
+        .timeout = cmd->attrs.timeout,
+        .retry_cnt = cmd->attrs.retry_cnt,
+        .rnr_retry = cmd->attrs.rnr_retry,
+        .min_rnr_timer = cmd->attrs.min_rnr_timer,
+        .max_rd_atomic = cmd->attrs.max_rd_atomic,
+        .max_dest_rd_atomic = cmd->attrs.max_dest_rd_atomic,
+        .qkey = cmd->attrs.qkey,
+    };
 
-    /* No need to verify sgid_index since it is u8 */
+    memcpy(&attr.dgid, &cmd->attrs.ah_attr.grh.dgid, sizeof(attr.dgid));
 
     return rdma_rm_modify_qp(
         &dev->rdma_dev_res, &dev->backend_dev, cmd->qp_handle, cmd->attr_mask,
-        cmd->attrs.ah_attr.grh.sgid_index,
-        (union ibv_gid *)&cmd->attrs.ah_attr.grh.dgid, cmd->attrs.dest_qp_num,
-        (enum ibv_qp_state)cmd->attrs.qp_state, cmd->attrs.qkey,
-        cmd->attrs.rq_psn, cmd->attrs.sq_psn);
+        &attr);
 }
 
 static int query_qp(PVRDMADev *dev, union pvrdma_cmd_req *req,
@@ -726,7 +849,8 @@ static int create_bind(PVRDMADev *dev, union pvrdma_cmd_req *req,
     }
 
     return rdma_rm_add_gid(&dev->rdma_dev_res, &dev->backend_dev,
-                           dev->backend_eth_device_name, gid, cmd->index);
+                           dev->backend_eth_device_name, gid, cmd->index,
+                           cmd->gid_type, cmd->vlan, cmd->mtu);
 }
 
 static int destroy_bind(PVRDMADev *dev, union pvrdma_cmd_req *req,
@@ -1140,7 +1264,8 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
     static uint64_t adminq_trace_seq;
     uint64_t seq = ++adminq_trace_seq;
     uint32_t cmd;
-    int err = 0xFFFF;
+    int err = -EIO;
+    int transport_err = 0;
     DSRInfo *dsr_info;
 
     rdma_info_report(">>> pvrdma_exec_cmd: ENTRY");
@@ -1149,10 +1274,11 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
 
     rdma_info_report(">>> pvrdma_exec_cmd: dsr=%p req=%p rsp=%p", dsr_info->dsr,
                      dsr_info->req, dsr_info->rsp);
-    if (!dsr_info->dsr) {
+    if (!dsr_info->dsr || !dsr_info->req || !dsr_info->rsp) {
         /* Buggy or malicious guest driver */
         rdma_error_report("Exec command without dsr, req or rsp buffers");
         rdma_error_report("  dsr_info->dsr = %p", dsr_info->dsr);
+        transport_err = EIO;
         goto out;
     }
 
@@ -1161,16 +1287,19 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
 
     cmd = dsr_info->req->hdr.cmd;
     trace_adminq_req(seq, dsr_info->req);
+    memset(dsr_info->rsp, 0, sizeof(*dsr_info->rsp));
 
     if (dsr_info->req->hdr.cmd >=
         sizeof(cmd_handlers) / sizeof(struct cmd_handler)) {
         rdma_error_report("Unsupported command");
-        goto out;
+        err = -EOPNOTSUPP;
+        goto respond;
     }
 
     if (!cmd_handlers[dsr_info->req->hdr.cmd].exec) {
         rdma_error_report("Unsupported command (not implemented yet)");
-        goto out;
+        err = -EOPNOTSUPP;
+        goto respond;
     }
 
     rdma_info_report(">>> pvrdma_exec_cmd: Executing command handler...");
@@ -1180,9 +1309,11 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
         ">>> pvrdma_exec_cmd: Command handler returned err = %d (0x%x)", err,
         err);
 
+respond:
     dsr_info->rsp->hdr.response = dsr_info->req->hdr.response;
-    dsr_info->rsp->hdr.ack = cmd_handlers[dsr_info->req->hdr.cmd].ack;
-    dsr_info->rsp->hdr.err = err < 0 ? -err : 0;
+    dsr_info->rsp->hdr.ack = PVRDMA_CMD_FIRST_RESP + cmd;
+    dsr_info->rsp->hdr.err =
+        err < 0 ? ((-err <= UINT8_MAX) ? -err : EIO) : 0;
     trace_adminq_rsp(seq, cmd, dsr_info->rsp);
     rdma_info_report(
         ">>> pvrdma_exec_cmd: RESP prepared response=0x%x ack=0x%x err=%u",
@@ -1193,11 +1324,12 @@ int pvrdma_exec_cmd(PVRDMADev *dev)
     dev->stats.commands++;
 
 out:
-    rdma_info_report(">>> pvrdma_exec_cmd: Setting PVRDMA_REG_ERR = 0x%x", err);
-    set_reg_val(dev, PVRDMA_REG_ERR, err);
+    rdma_info_report(">>> pvrdma_exec_cmd: Setting PVRDMA_REG_ERR = 0x%x",
+                     transport_err);
+    set_reg_val(dev, PVRDMA_REG_ERR, transport_err);
     post_interrupt(dev, INTR_VEC_CMD_RING);
 
     rdma_info_report(">>> pvrdma_exec_cmd: EXIT (returning %d)",
                      (err == 0) ? 0 : -EINVAL);
-    return (err == 0) ? 0 : -EINVAL;
+    return transport_err ? -EIO : 0;
 }

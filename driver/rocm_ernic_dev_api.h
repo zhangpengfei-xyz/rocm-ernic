@@ -60,7 +60,12 @@
 #define ROCM_ERNIC_ROCEV2_VERSION   18
 #define ROCM_ERNIC_PPN64_VERSION    19
 #define ROCM_ERNIC_QPHANDLE_VERSION 20
-#define ROCM_ERNIC_VERSION          ROCM_ERNIC_QPHANDLE_VERSION
+#define ROCM_ERNIC_MLNX_VERSION     21
+#define ROCM_ERNIC_VERSION          ROCM_ERNIC_MLNX_VERSION
+
+#define ROCM_ERNIC_BACKEND_F_MESH              BIT(0)
+#define ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR   BIT(8)
+#define ROCM_ERNIC_BACKEND_F_GID_BIND_REQUIRED BIT(9)
 
 #define ROCM_ERNIC_BOARD_ID 1
 #define ROCM_ERNIC_REV_ID   1
@@ -468,6 +473,18 @@ struct rocm_ernic_cmd_create_mr {
     u32 nchunks;
 };
 
+struct rocm_ernic_cmd_create_mr_v2 {
+    struct rocm_ernic_cmd_hdr hdr;
+    u64 start;
+    u64 length;
+    u64 pdir_dma;
+    u32 pd_handle;
+    u32 access_flags;
+    u32 flags;
+    u32 nchunks;
+    u64 iova;
+};
+
 struct rocm_ernic_cmd_create_mr_resp {
     struct rocm_ernic_cmd_resp_hdr hdr;
     u32 mr_handle;
@@ -655,6 +672,7 @@ union rocm_ernic_cmd_req {
     struct rocm_ernic_cmd_create_pd create_pd;
     struct rocm_ernic_cmd_destroy_pd destroy_pd;
     struct rocm_ernic_cmd_create_mr create_mr;
+    struct rocm_ernic_cmd_create_mr_v2 create_mr_v2;
     struct rocm_ernic_cmd_destroy_mr destroy_mr;
     struct rocm_ernic_cmd_create_cq create_cq;
     struct rocm_ernic_cmd_resize_cq resize_cq;

@@ -60,7 +60,12 @@
 #define PVRDMA_ROCEV2_VERSION   18
 #define PVRDMA_PPN64_VERSION    19
 #define PVRDMA_QPHANDLE_VERSION 20
-#define PVRDMA_VERSION          PVRDMA_QPHANDLE_VERSION
+#define PVRDMA_MLNX_VERSION     21
+#define PVRDMA_VERSION          PVRDMA_MLNX_VERSION
+
+#define PVRDMA_BACKEND_F_MESH              BIT(0)
+#define PVRDMA_BACKEND_F_IDENTITY_MIRROR   BIT(8)
+#define PVRDMA_BACKEND_F_GID_BIND_REQUIRED BIT(9)
 
 #define PVRDMA_BOARD_ID 1
 #define PVRDMA_REV_ID   1
@@ -467,6 +472,18 @@ struct pvrdma_cmd_create_mr {
     uint32_t nchunks;
 };
 
+struct pvrdma_cmd_create_mr_v2 {
+    struct pvrdma_cmd_hdr hdr;
+    uint64_t start;
+    uint64_t length;
+    uint64_t pdir_dma;
+    uint32_t pd_handle;
+    uint32_t access_flags;
+    uint32_t flags;
+    uint32_t nchunks;
+    uint64_t iova;
+};
+
 struct pvrdma_cmd_create_mr_resp {
     struct pvrdma_cmd_resp_hdr hdr;
     uint32_t mr_handle;
@@ -654,6 +671,7 @@ union pvrdma_cmd_req {
     struct pvrdma_cmd_create_pd create_pd;
     struct pvrdma_cmd_destroy_pd destroy_pd;
     struct pvrdma_cmd_create_mr create_mr;
+    struct pvrdma_cmd_create_mr_v2 create_mr_v2;
     struct pvrdma_cmd_destroy_mr destroy_mr;
     struct pvrdma_cmd_create_cq create_cq;
     struct pvrdma_cmd_resize_cq resize_cq;

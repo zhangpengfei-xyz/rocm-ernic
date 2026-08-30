@@ -122,10 +122,12 @@ struct PVRDMADev {
     uint32_t uar_data[RDMA_BAR2_UAR_SIZE / sizeof(uint32_t)];
     DSRInfo dsr_info;
     int interrupt_mask;
+    uint32_t effective_version;
     struct ibv_device_attr dev_attr;
     uint64_t node_guid;
     char *backend_eth_device_name;
     char *backend_device_name;
+    char *backend_config;
     uint8_t backend_port_num;
     RdmaBackendDev backend_dev;
     RdmaDeviceResources rdma_dev_res;

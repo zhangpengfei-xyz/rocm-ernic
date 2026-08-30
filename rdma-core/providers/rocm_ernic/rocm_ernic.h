@@ -39,6 +39,9 @@ struct rocm_ernic_alloc_ucontext_resp {
     struct ib_uverbs_get_context_resp ibv_resp;
     __u32 qp_tab_size;
     __u32 reserved;
+    __aligned_u64 uar_mmap_offset;
+    __u32 uar_cq_offset;
+    __u32 reserved2;
 };
 
 struct rocm_ernic_alloc_pd_resp_ex {
@@ -100,6 +103,8 @@ struct rocm_ernic_context {
     struct verbs_context vctx;
     uint32_t qp_tab_size;
     uint32_t dv_abi_version;
+    void *uar_ptr;
+    uint32_t uar_cq_offset;
 };
 
 struct rocm_ernic_pd {

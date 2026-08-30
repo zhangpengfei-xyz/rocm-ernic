@@ -63,9 +63,28 @@ typedef struct dma_mapping {
     vfu_ctx_t *vfu_ctx;
 } dma_mapping_t;
 
-#define MAX_DMA_MAPPINGS 256
-static dma_mapping_t dma_mappings[MAX_DMA_MAPPINGS];
-static int num_dma_mappings = 0;
+static dma_mapping_t *dma_mappings;
+static size_t num_dma_mappings;
+static size_t dma_mappings_capacity;
+
+static int dma_mapping_reserve(void)
+{
+    dma_mapping_t *new_mappings;
+    size_t new_capacity;
+
+    if (num_dma_mappings < dma_mappings_capacity)
+        return 0;
+    new_capacity = dma_mappings_capacity ? dma_mappings_capacity * 2 : 256;
+    if (new_capacity > SIZE_MAX / sizeof(*dma_mappings))
+        return -EOVERFLOW;
+    new_mappings = realloc(dma_mappings,
+                           new_capacity * sizeof(*dma_mappings));
+    if (!new_mappings)
+        return -ENOMEM;
+    dma_mappings = new_mappings;
+    dma_mappings_capacity = new_capacity;
+    return 0;
+}
 
 /*
  * Device Management
@@ -106,6 +125,14 @@ pvrdma_handle_t pvrdma_device_create(rocm_ernic_dev_t *dev,
     /* Extract backend config (part after ':') from backend string */
     const char *colon = strchr(backend_type_str, ':');
     const char *backend_config_from_string = colon ? (colon + 1) : NULL;
+
+    if (backend_config_from_string) {
+        pvrdma->backend_config = strdup(backend_config_from_string);
+        if (!pvrdma->backend_config) {
+            free(pvrdma);
+            return NULL;
+        }
+    }
 
     /* Set backend device configuration based on backend type */
     if (backend_type == RDMA_BACKEND_TYPE_VERBS) {
@@ -243,6 +270,7 @@ void pvrdma_device_destroy(pvrdma_handle_t handle)
     /* Free device names */
     free(pvrdma->backend_device_name);
     free(pvrdma->backend_eth_device_name);
+    free(pvrdma->backend_config);
 
     /* Free TCP connections */
     if (pvrdma->tcp_connections) {
@@ -273,9 +301,7 @@ int pvrdma_device_realize(pvrdma_handle_t handle)
                      PVRDMA_HW_VERSION);
 
     /* Initialize RDMA backend with selected backend type */
-    const char *backend_config =
-        pvrdma
-            ->backend_device_name; /* Config extracted from --backend string */
+    const char *backend_config = pvrdma->backend_config;
 
     rc = rdma_backend_init_with_ops(
         &pvrdma->backend_dev, pvrdma->backend_dev.backend_type, backend_config);
@@ -286,6 +312,11 @@ int pvrdma_device_realize(pvrdma_handle_t handle)
             "Backend type: %s",
             rdma_backend_type_to_string(pvrdma->backend_dev.backend_type));
         return -EIO;
+    }
+
+    if (pvrdma->backend_dev.protocol_version) {
+        set_reg_val(pvrdma, PVRDMA_REG_VERSION,
+                    pvrdma->backend_dev.protocol_version);
     }
 
     /* CRITICAL: Link backend_dev to the device resources */
@@ -299,8 +330,22 @@ int pvrdma_device_realize(pvrdma_handle_t handle)
     rdma_info_report("Set backend_dev->dev to PCIDevice at %p",
                      pvrdma->backend_dev.dev);
 
-    /* Initialize DHCP server for loopback mode and TCP manager mode */
-    if (pvrdma->backend_dev.backend_type == RDMA_BACKEND_TYPE_LOOPBACK) {
+    /* Identity-only DHCP assigns the selected physical IPv4 as a /32. */
+    if (pvrdma->backend_dev.identity) {
+        uint32_t server_ip = inet_addr("192.0.2.1");
+        uint32_t subnet_mask = inet_addr("255.255.255.255");
+        uint32_t selected_ip = pvrdma->backend_dev.identity->ipv4_be;
+
+        pvrdma->dhcp_server =
+            dhcp_server_create(server_ip, subnet_mask, 0, 0, selected_ip,
+                               selected_ip, UINT32_MAX);
+        if (!pvrdma->dhcp_server) {
+            rdma_error_report("Failed to create MLNX identity DHCP server");
+            return -ENOMEM;
+        }
+        rdma_info_report("MLNX fixed-identity DHCP initialized (/32)");
+    } else if (pvrdma->backend_dev.backend_type ==
+               RDMA_BACKEND_TYPE_LOOPBACK) {
         /* Default DHCP configuration: 192.168.100.0/24 */
         uint32_t server_ip = inet_addr("192.168.100.1");
         uint32_t subnet_mask = inet_addr("255.255.255.0");
@@ -614,6 +659,7 @@ void *pci_dma_map(PCIDevice *dev, dma_addr_t addr, dma_addr_t *plen, int dir)
     void *host_addr;
     int ret;
     size_t sg_size;
+    dma_addr_t requested_len;
 
     rdma_info_report("=== DMA MAP CALLED ===");
     rdma_info_report("  guest_addr=%#lx requested_len=%zu dir=%d", addr,
@@ -649,6 +695,7 @@ void *pci_dma_map(PCIDevice *dev, dma_addr_t addr, dma_addr_t *plen, int dir)
         rdma_error_report("DMA map: NULL plen pointer");
         return NULL;
     }
+    requested_len = *plen;
 
     vfu_ctx = dev->vfu_ctx;
     rdma_info_report("  vfu_ctx=%p", vfu_ctx);
@@ -720,6 +767,14 @@ void *pci_dma_map(PCIDevice *dev, dma_addr_t addr, dma_addr_t *plen, int dir)
         *plen = 0;
         return NULL;
     }
+    if (ret != 0 || iov.iov_len != requested_len) {
+        rdma_error_report("DMA map: expected one exact mapping of %zu bytes, got %zu",
+                          (size_t)requested_len, iov.iov_len);
+        vfu_sgl_put(vfu_ctx, sg, &iov, 1);
+        free(sg);
+        *plen = 0;
+        return NULL;
+    }
 
     rdma_info_report("=== DMA MAP SUCCESS: guest=%#lx -> host=%p len=%zu ===",
                      addr, host_addr, (size_t)*plen);
@@ -729,11 +784,12 @@ void *pci_dma_map(PCIDevice *dev, dma_addr_t addr, dma_addr_t *plen, int dir)
      * This is CRITICAL for memory coherency - writes won't be visible to the
      * guest until we call vfu_sgl_put() on the same SGL/iovec pair.
      */
-    if (num_dma_mappings >= MAX_DMA_MAPPINGS) {
-        rdma_error_report("DMA map: Mapping table full (%d entries)",
-                          MAX_DMA_MAPPINGS);
-        /* Still return the pointer, but we won't be able to properly release it
-         */
+    if (dma_mapping_reserve()) {
+        rdma_error_report("DMA map: failed to grow mapping table");
+        vfu_sgl_put(vfu_ctx, sg, &iov, 1);
+        free(sg);
+        *plen = 0;
+        return NULL;
     } else {
         dma_mappings[num_dma_mappings].guest_addr = addr;
         dma_mappings[num_dma_mappings].len = *plen;
@@ -742,7 +798,7 @@ void *pci_dma_map(PCIDevice *dev, dma_addr_t addr, dma_addr_t *plen, int dir)
         dma_mappings[num_dma_mappings].host_addr = host_addr;
         dma_mappings[num_dma_mappings].vfu_ctx = vfu_ctx;
         num_dma_mappings++;
-        rdma_info_report("DMA map: Stored mapping #%d (guest=%#lx)",
+        rdma_info_report("DMA map: Stored mapping #%zu (guest=%#lx)",
                          num_dma_mappings, addr);
     }
 
@@ -762,11 +818,11 @@ void pvrdma_dsr_flush(void *handle)
                      dsr_guest_addr);
 
     /* Find the DSR mapping */
-    for (int i = 0; i < num_dma_mappings; i++) {
+    for (size_t i = 0; i < num_dma_mappings; i++) {
         dma_mapping_t *mapping = &dma_mappings[i];
 
         if (mapping->guest_addr == dsr_guest_addr) {
-            rdma_info_report("  Found DSR mapping #%d at host=%p", i,
+            rdma_info_report("  Found DSR mapping #%zu at host=%p", i,
                              mapping->host_addr);
 
             /* Verify current values BEFORE flush */
@@ -818,14 +874,14 @@ int pci_dma_sync(PCIDevice *dev, dma_addr_t guest_addr, dma_addr_t len)
         guest_addr, (size_t)len);
 
     /* Find the mapping that contains this address */
-    for (int i = 0; i < num_dma_mappings; i++) {
+    for (size_t i = 0; i < num_dma_mappings; i++) {
         dma_mapping_t *mapping = &dma_mappings[i];
 
         /* Check if this address is within the mapped region */
         if (guest_addr >= mapping->guest_addr &&
             guest_addr + len <= mapping->guest_addr + mapping->len) {
             rdma_info_report(
-                "DMA sync: Found mapping #%d: guest=%#lx len=%zu sg=%p", i,
+                "DMA sync: Found mapping #%zu: guest=%#lx len=%zu sg=%p", i,
                 mapping->guest_addr, mapping->len, mapping->sg);
 
             /* Call vfu_sgl_put() to sync writes back to guest */
@@ -878,9 +934,9 @@ void pci_dma_unmap(PCIDevice *dev, void *buffer, dma_addr_t len, int dir,
     rdma_info_report("=== DMA UNMAP: buffer=%p ===", buffer);
 
     /* Find and release the mapping */
-    for (int i = 0; i < num_dma_mappings; i++) {
+    for (size_t i = 0; i < num_dma_mappings; i++) {
         if (dma_mappings[i].host_addr == buffer) {
-            rdma_info_report("DMA unmap: Found mapping #%d (guest=%#lx)", i,
+            rdma_info_report("DMA unmap: Found mapping #%zu (guest=%#lx)", i,
                              dma_mappings[i].guest_addr);
 
             /* Release the SGL mapping */
@@ -892,7 +948,7 @@ void pci_dma_unmap(PCIDevice *dev, void *buffer, dma_addr_t len, int dir,
             dma_mappings[i].sg = NULL; /* Prevent double-free */
 
             /* Remove from table by shifting remaining entries */
-            for (int j = i; j < num_dma_mappings - 1; j++) {
+            for (size_t j = i; j < num_dma_mappings - 1; j++) {
                 dma_mappings[j] = dma_mappings[j + 1];
             }
             num_dma_mappings--;
@@ -901,7 +957,7 @@ void pci_dma_unmap(PCIDevice *dev, void *buffer, dma_addr_t len, int dir,
             memset(&dma_mappings[num_dma_mappings], 0, sizeof(dma_mappings[0]));
 
             rdma_info_report(
-                "DMA unmap: Released and removed mapping (now %d mappings)",
+                "DMA unmap: Released and removed mapping (now %zu mappings)",
                 num_dma_mappings);
             return;
         }
@@ -919,15 +975,16 @@ void pci_dma_release(PCIDevice *dev, dma_addr_t guest_addr, dma_addr_t len)
     rdma_info_report("=== DMA RELEASE: guest=%#lx len=%zu ===", guest_addr,
                      (size_t)len);
 
-    for (int i = num_dma_mappings - 1; i >= 0; i--) {
-        dma_mapping_t *mapping = &dma_mappings[i];
+    for (size_t i = num_dma_mappings; i > 0; i--) {
+        size_t index = i - 1;
+        dma_mapping_t *mapping = &dma_mappings[index];
 
         if (mapping->guest_addr < guest_addr ||
             mapping->guest_addr >= guest_addr + len) {
             continue;
         }
 
-        rdma_info_report("DMA release: Found mapping #%d (guest=%#lx)", i,
+        rdma_info_report("DMA release: Found mapping #%zu (guest=%#lx)", index,
                          mapping->guest_addr);
 
         /* The SGL may already have been returned by pvrdma_dsr_flush(). */
@@ -938,14 +995,14 @@ void pci_dma_release(PCIDevice *dev, dma_addr_t guest_addr, dma_addr_t len)
         free(mapping->sg);
         mapping->sg = NULL;
 
-        for (int j = i; j < num_dma_mappings - 1; j++) {
+        for (size_t j = index; j < num_dma_mappings - 1; j++) {
             dma_mappings[j] = dma_mappings[j + 1];
         }
         num_dma_mappings--;
         memset(&dma_mappings[num_dma_mappings], 0, sizeof(dma_mappings[0]));
 
         rdma_info_report(
-            "DMA release: Released and removed mapping (now %d mappings)",
+            "DMA release: Released and removed mapping (now %zu mappings)",
             num_dma_mappings);
     }
 }

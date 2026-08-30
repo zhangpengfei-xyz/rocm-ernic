@@ -357,7 +357,7 @@ void _rocm_ernic_flush_cqe(struct rocm_ernic_qp *qp, struct rocm_ernic_cq *cq)
             if (tail < 0)
                 tail = cq->ibcq.cqe - 1;
             curr_cqe = get_cqe(cq, curr);
-            if ((curr_cqe->qp & 0xFFFF) != qp->qp_handle) {
+            if ((u32)curr_cqe->qp != qp->qp_handle) {
                 if (curr != tail) {
                     cqe = get_cqe(cq, tail);
                     *cqe = *curr_cqe;
@@ -401,8 +401,10 @@ retry:
 
     /* Ensure cqe is valid. */
     rmb();
-    if (dev->qp_tbl[cqe->qp & 0xffff])
-        *cur_qp = (struct rocm_ernic_qp *)dev->qp_tbl[cqe->qp & 0xffff];
+    if ((u32)cqe->qp >= dev->dsr->caps.max_qp)
+        return -EIO;
+    if (dev->qp_tbl[(u32)cqe->qp])
+        *cur_qp = (struct rocm_ernic_qp *)dev->qp_tbl[(u32)cqe->qp];
     else
         return -EAGAIN;
 

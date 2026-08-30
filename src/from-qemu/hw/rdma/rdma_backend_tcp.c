@@ -2683,7 +2683,8 @@ static void tcp_post_recv(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
  */
 
 static int tcp_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                       union ibv_gid *gid)
+                       union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                       uint32_t vlan, uint32_t mtu)
 {
     TcpBackendPrivate *priv = get_private(backend_dev);
 

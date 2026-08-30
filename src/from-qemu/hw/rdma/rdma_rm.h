@@ -31,10 +31,14 @@ RdmaRmPD *rdma_rm_get_pd(RdmaDeviceResources *dev_res, uint32_t pd_handle);
 void rdma_rm_dealloc_pd(RdmaDeviceResources *dev_res, uint32_t pd_handle);
 
 int rdma_rm_alloc_mr(RdmaDeviceResources *dev_res, uint32_t pd_handle,
-                     uint64_t guest_start, uint64_t guest_length,
-                     void *host_virt, int access_flags, uint32_t *mr_handle,
+                     uint64_t guest_start, uint64_t guest_iova,
+                     uint64_t guest_length,
+                     GuestMemoryLease *lease, int access_flags,
+                     uint32_t *mr_handle,
                      uint32_t *lkey, uint32_t *rkey);
 RdmaRmMR *rdma_rm_get_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle);
+RdmaRmMR *rdma_rm_find_mr_by_lkey(RdmaDeviceResources *dev_res,
+                                  uint32_t lkey);
 void rdma_rm_dealloc_mr(RdmaDeviceResources *dev_res, uint32_t mr_handle);
 
 int rdma_rm_alloc_uc(RdmaDeviceResources *dev_res, uint32_t pfn,
@@ -46,21 +50,20 @@ int rdma_rm_alloc_cq(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                      uint32_t cqe, uint32_t *cq_handle, void *opaque);
 RdmaRmCQ *rdma_rm_get_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle);
 void rdma_rm_req_notify_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle,
-                           bool notify);
+                           bool solicited_only);
 void rdma_rm_dealloc_cq(RdmaDeviceResources *dev_res, uint32_t cq_handle);
 
 int rdma_rm_alloc_qp(RdmaDeviceResources *dev_res, uint32_t pd_handle,
                      uint8_t qp_type, uint32_t max_send_wr,
                      uint32_t max_send_sge, uint32_t send_cq_handle,
                      uint32_t max_recv_wr, uint32_t max_recv_sge,
-                     uint32_t recv_cq_handle, void *opaque, uint32_t *qpn,
+                     uint32_t recv_cq_handle, void *opaque,
+                     uint32_t *qp_handle, uint32_t *qpn, uint8_t sq_sig_all,
                      uint8_t is_srq, uint32_t srq_handle);
-RdmaRmQP *rdma_rm_get_qp(RdmaDeviceResources *dev_res, uint32_t qpn);
+RdmaRmQP *rdma_rm_get_qp(RdmaDeviceResources *dev_res, uint32_t qp_handle);
 int rdma_rm_modify_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
-                      uint32_t qp_handle, uint32_t attr_mask, uint8_t sgid_idx,
-                      union ibv_gid *dgid, uint32_t dqpn,
-                      enum ibv_qp_state qp_state, uint32_t qkey,
-                      uint32_t rq_psn, uint32_t sq_psn);
+                      uint32_t qp_handle, uint32_t attr_mask,
+                      const RdmaBackendQpAttr *attr);
 int rdma_rm_query_qp(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                      uint32_t qp_handle, struct ibv_qp_attr *attr,
                      int attr_mask, struct ibv_qp_init_attr *init_attr);
@@ -82,7 +85,8 @@ void *rdma_rm_get_cqe_ctx(RdmaDeviceResources *dev_res, uint32_t cqe_ctx_id);
 void rdma_rm_dealloc_cqe_ctx(RdmaDeviceResources *dev_res, uint32_t cqe_ctx_id);
 
 int rdma_rm_add_gid(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
-                    const char *ifname, union ibv_gid *gid, int gid_idx);
+                    const char *ifname, union ibv_gid *gid, int gid_idx,
+                    uint8_t gid_type, uint32_t vlan, uint32_t mtu);
 int rdma_rm_del_gid(RdmaDeviceResources *dev_res, RdmaBackendDev *backend_dev,
                     const char *ifname, int gid_idx);
 int rdma_rm_get_backend_gid_index(RdmaDeviceResources *dev_res,

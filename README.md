@@ -129,9 +129,10 @@ sudo cmake --install build
 ## Basic Usage
 
 ```bash
-# Start the ROCm ERNIC device server with verbs backend
+# Start the ROCm ERNIC device server with the MLNX identity-mirror backend.
+# The IPv4 address must already be assigned to the selected Ethernet device.
 ./build/rocm-ernic --socket /tmp/vfio-user-rocm-ernic.sock \
-                   --backend verbs:device=mlx5_0,ethdev=eth0,port=1 \
+                   --backend mlnx:device=mlx5_0,ethdev=eth0,port=1,roce=v2,ip=192.0.2.10,mirror-mac=on \
                    --verbose
 
 # Start with loopback backend (for testing)

@@ -22,6 +22,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include "qemu/atomic.h"
 #include "qemu/compiler.h" /* For unlikely() */
 #include "../rdma_utils.h"
 #include "../rdma_rm.h"
@@ -43,6 +44,7 @@ typedef struct CompHandlerCtx {
     uint32_t opcode;      /* PVRDMA_WR_* opcode */
     uint64_t remote_addr; /* For RDMA Read/Write */
     uint32_t rkey;        /* For RDMA Read/Write */
+    bool publish_success;
 } CompHandlerCtx;
 
 /* Send Queue WQE */
@@ -69,8 +71,9 @@ static int pvrdma_post_cqe(PVRDMADev *dev, uint32_t cq_handle,
     struct pvrdma_cqne *cqne;
     PvrdmaRing *ring;
     RdmaRmCQ *cq = rdma_rm_get_cq(&dev->rdma_dev_res, cq_handle);
-    uint32_t qp_handle = cqe->qp ? cqe->qp : wc->qp_num;
+    uint32_t qp_handle = cqe->qp ? (uint32_t)cqe->qp : wc->qp_num;
     PVRDMAQPStats *qp_stats;
+    CQNotificationType notify;
 
     if (unlikely(!cq)) {
         return -EINVAL;
@@ -86,7 +89,7 @@ static int pvrdma_post_cqe(PVRDMADev *dev, uint32_t cq_handle,
 
     memset(cqe1, 0, sizeof(*cqe1));
     cqe1->wr_id = cqe->wr_id;
-    cqe1->qp = qp_handle;
+    cqe1->qp = cqe->qp ? cqe->qp : wc->qp_num;
     cqe1->opcode = cqe->opcode;
     cqe1->status = wc->status;
     cqe1->byte_len = wc->byte_len;
@@ -102,7 +105,21 @@ static int pvrdma_post_cqe(PVRDMADev *dev, uint32_t cq_handle,
         qp_stats->cqes_posted++;
     }
 
-    /* Step #2: Put CQ number on dsr completion ring */
+    notify = qatomic_read(&cq->notify);
+    if (notify == CNT_CLEAR) {
+        return 0;
+    }
+    if (notify == CNT_ARM) {
+        CQNotificationType expected = CNT_ARM;
+
+        if (!__atomic_compare_exchange_n(&cq->notify, &expected, CNT_CLEAR,
+                                         false, __ATOMIC_ACQ_REL,
+                                         __ATOMIC_ACQUIRE)) {
+            return 0;
+        }
+    }
+
+    /* Step #2: Publish one notification for an armed CQ. */
     cqne = pvrdma_ring_next_elem_write(&dev->dsr_info.cq);
     if (unlikely(!cqne)) {
         return -EINVAL;
@@ -111,12 +128,7 @@ static int pvrdma_post_cqe(PVRDMADev *dev, uint32_t cq_handle,
     cqne->info = cq_handle;
     pvrdma_ring_write_inc(&dev->dsr_info.cq);
 
-    if (cq->notify != CNT_CLEAR) {
-        if (cq->notify == CNT_ARM) {
-            cq->notify = CNT_CLEAR;
-        }
-        post_interrupt(dev, INTR_VEC_CMD_COMPLETION_Q);
-    }
+    post_interrupt(dev, INTR_VEC_CMD_COMPLETION_Q);
 
     return 0;
 }
@@ -130,6 +142,11 @@ static void pvrdma_qp_ops_comp_handler(void *ctx, struct ibv_wc *wc)
         "opcode=%d status=%d",
         comp_ctx->cq_handle, comp_ctx->cqe.wr_id, comp_ctx->cqe.qp,
         comp_ctx->cqe.opcode, wc->status);
+
+    if (wc->status == IBV_WC_SUCCESS && !comp_ctx->publish_success) {
+        g_free(ctx);
+        return;
+    }
 
     if (pvrdma_post_cqe(comp_ctx->dev, comp_ctx->cq_handle, &comp_ctx->cqe,
                         wc) < 0) {
@@ -190,6 +207,36 @@ static enum ibv_wc_opcode pvrdma_to_ibv_wc_opcode(uint32_t pvrdma_opcode)
     }
 }
 
+static int validate_mlnx_sges(PVRDMADev *dev, RdmaRmQP *qp,
+                              const struct pvrdma_sge *sges, uint32_t num_sge,
+                              bool device_writes)
+{
+    uint64_t total = 0;
+    uint32_t i;
+
+    for (i = 0; i < num_sge; i++) {
+        RdmaRmMR *mr = rdma_rm_find_mr_by_lkey(&dev->rdma_dev_res,
+                                               sges[i].lkey);
+        uint64_t offset;
+
+        if (!mr || mr->pd_handle != qp->pd_handle || sges[i].addr < mr->iova) {
+            return VENDOR_ERR_INVLKEY;
+        }
+        offset = sges[i].addr - mr->iova;
+        if (offset > mr->length || sges[i].length > mr->length - offset) {
+            return VENDOR_ERR_MR_SMALL;
+        }
+        if (device_writes && !(mr->access_flags & IBV_ACCESS_LOCAL_WRITE)) {
+            return VENDOR_ERR_INVLKEY;
+        }
+        if (UINT64_MAX - total < sges[i].length) {
+            return VENDOR_ERR_MR_SMALL;
+        }
+        total += sges[i].length;
+    }
+    return 0;
+}
+
 /* Context for QP continuation callback */
 typedef struct QPContinuationCtx {
     PVRDMADev *dev;
@@ -231,17 +278,26 @@ static gboolean continue_qp_recv_processing(gpointer user_data)
         CompHandlerCtx *comp_ctx;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = qp->recv_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
-        comp_ctx->cqe.qp = qp_handle;
+        comp_ctx->cqe.qp = ((uint64_t)qp->qpn << 32) | qp_handle;
         comp_ctx->cqe.opcode = IBV_WC_RECV;
+        comp_ctx->publish_success = true;
 
         if (wqe->hdr.num_sge > dev->dev_attr.max_sge) {
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,
                               dev->dev_attr.max_sge);
             complete_with_error(VENDOR_ERR_INV_NUM_SGE, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            qp->wqe_state.wqes_processed++;
+            wqe = pvrdma_ring_next_elem_read(ring);
+            continue;
+        }
+        if (dev->backend_dev.identity &&
+            validate_mlnx_sges(dev, qp, wqe->sge, wqe->hdr.num_sge, true)) {
+            complete_with_error(VENDOR_ERR_INVLKEY, comp_ctx);
             pvrdma_ring_read_inc(ring);
             qp->wqe_state.wqes_processed++;
             wqe = pvrdma_ring_next_elem_read(ring);
@@ -341,14 +397,27 @@ static gboolean continue_qp_send_processing(gpointer user_data)
         uint32_t pvrdma_opcode = wqe->hdr.opcode;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = qp->send_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
-        comp_ctx->cqe.qp = qp_handle;
+        comp_ctx->cqe.qp = ((uint64_t)qp->qpn << 32) | qp_handle;
         comp_ctx->opcode = pvrdma_opcode;
         comp_ctx->remote_addr = 0;
         comp_ctx->rkey = 0;
+        comp_ctx->publish_success = qp->sq_sig_all ||
+            !!(wqe->hdr.send_flags & PVRDMA_SEND_SIGNALED);
+
+        if (dev->backend_dev.identity &&
+            (pvrdma_opcode != PVRDMA_WR_SEND || wqe->hdr.total_len ||
+             wqe->hdr.reserved ||
+             (wqe->hdr.send_flags & ~PVRDMA_SEND_SIGNALED))) {
+            complete_with_error(VENDOR_ERR_UNSUPPORTED, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            qp->wqe_state.wqes_processed++;
+            wqe = pvrdma_ring_next_elem_read(ring);
+            continue;
+        }
 
         /* Map PVRDMA opcode to IBV completion opcode */
         comp_ctx->cqe.opcode = pvrdma_to_ibv_wc_opcode(pvrdma_opcode);
@@ -413,6 +482,14 @@ static gboolean continue_qp_send_processing(gpointer user_data)
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,
                               dev->dev_attr.max_sge);
             complete_with_error(VENDOR_ERR_INV_NUM_SGE, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            wqe = pvrdma_ring_next_elem_read(ring);
+            qp->wqe_state.wqes_processed++;
+            continue;
+        }
+        if (dev->backend_dev.identity &&
+            validate_mlnx_sges(dev, qp, wqe->sge, wqe->hdr.num_sge, false)) {
+            complete_with_error(VENDOR_ERR_INVLKEY, comp_ctx);
             pvrdma_ring_read_inc(ring);
             wqe = pvrdma_ring_next_elem_read(ring);
             qp->wqe_state.wqes_processed++;
@@ -496,12 +573,13 @@ static gboolean continue_srq_recv_processing(gpointer user_data)
         CompHandlerCtx *comp_ctx;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = srq->recv_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
         comp_ctx->cqe.qp = 0;
         comp_ctx->cqe.opcode = IBV_WC_RECV;
+        comp_ctx->publish_success = true;
 
         if (wqe->hdr.num_sge > dev->dev_attr.max_sge) {
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,
@@ -606,14 +684,27 @@ void pvrdma_qp_send(PVRDMADev *dev, uint32_t qp_handle)
         uint32_t pvrdma_opcode = wqe->hdr.opcode;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = qp->send_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
-        comp_ctx->cqe.qp = qp_handle;
+        comp_ctx->cqe.qp = ((uint64_t)qp->qpn << 32) | qp_handle;
         comp_ctx->opcode = pvrdma_opcode;
         comp_ctx->remote_addr = 0;
         comp_ctx->rkey = 0;
+        comp_ctx->publish_success = qp->sq_sig_all ||
+            !!(wqe->hdr.send_flags & PVRDMA_SEND_SIGNALED);
+
+        if (dev->backend_dev.identity &&
+            (pvrdma_opcode != PVRDMA_WR_SEND || wqe->hdr.total_len ||
+             wqe->hdr.reserved ||
+             (wqe->hdr.send_flags & ~PVRDMA_SEND_SIGNALED))) {
+            complete_with_error(VENDOR_ERR_UNSUPPORTED, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            qp->wqe_state.wqes_processed++;
+            wqe = pvrdma_ring_next_elem_read(ring);
+            continue;
+        }
 
         /* Map PVRDMA opcode to IBV completion opcode */
         comp_ctx->cqe.opcode = pvrdma_to_ibv_wc_opcode(pvrdma_opcode);
@@ -678,6 +769,14 @@ void pvrdma_qp_send(PVRDMADev *dev, uint32_t qp_handle)
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,
                               dev->dev_attr.max_sge);
             complete_with_error(VENDOR_ERR_INV_NUM_SGE, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            qp->wqe_state.wqes_processed++;
+            wqe = pvrdma_ring_next_elem_read(ring);
+            continue;
+        }
+        if (dev->backend_dev.identity &&
+            validate_mlnx_sges(dev, qp, wqe->sge, wqe->hdr.num_sge, false)) {
+            complete_with_error(VENDOR_ERR_INVLKEY, comp_ctx);
             pvrdma_ring_read_inc(ring);
             qp->wqe_state.wqes_processed++;
             wqe = pvrdma_ring_next_elem_read(ring);
@@ -760,17 +859,26 @@ void pvrdma_qp_recv(PVRDMADev *dev, uint32_t qp_handle)
         CompHandlerCtx *comp_ctx;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = qp->recv_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
-        comp_ctx->cqe.qp = qp_handle;
+        comp_ctx->cqe.qp = ((uint64_t)qp->qpn << 32) | qp_handle;
         comp_ctx->cqe.opcode = IBV_WC_RECV;
+        comp_ctx->publish_success = true;
 
         if (wqe->hdr.num_sge > dev->dev_attr.max_sge) {
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,
                               dev->dev_attr.max_sge);
             complete_with_error(VENDOR_ERR_INV_NUM_SGE, comp_ctx);
+            pvrdma_ring_read_inc(ring);
+            qp->wqe_state.wqes_processed++;
+            wqe = pvrdma_ring_next_elem_read(ring);
+            continue;
+        }
+        if (dev->backend_dev.identity &&
+            validate_mlnx_sges(dev, qp, wqe->sge, wqe->hdr.num_sge, true)) {
+            complete_with_error(VENDOR_ERR_INVLKEY, comp_ctx);
             pvrdma_ring_read_inc(ring);
             qp->wqe_state.wqes_processed++;
             wqe = pvrdma_ring_next_elem_read(ring);
@@ -833,12 +941,13 @@ void pvrdma_srq_recv(PVRDMADev *dev, uint32_t srq_handle)
         CompHandlerCtx *comp_ctx;
 
         /* Prepare CQE */
-        comp_ctx = g_new(CompHandlerCtx, 1);
+        comp_ctx = g_new0(CompHandlerCtx, 1);
         comp_ctx->dev = dev;
         comp_ctx->cq_handle = srq->recv_cq_handle;
         comp_ctx->cqe.wr_id = wqe->hdr.wr_id;
         comp_ctx->cqe.qp = 0;
         comp_ctx->cqe.opcode = IBV_WC_RECV;
+        comp_ctx->publish_success = true;
 
         if (wqe->hdr.num_sge > dev->dev_attr.max_sge) {
             rdma_error_report("Invalid num_sge=%d (max %d)", wqe->hdr.num_sge,

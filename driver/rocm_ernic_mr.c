@@ -65,6 +65,11 @@ struct ib_mr *rocm_ernic_get_dma_mr(struct ib_pd *pd, int acc)
     struct rocm_ernic_cmd_create_mr_resp *resp = &rsp.create_mr_resp;
     int ret;
 
+    if (dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION &&
+        (dev->dsr->caps.mesh_flags &
+         ROCM_ERNIC_BACKEND_F_IDENTITY_MIRROR))
+        return ERR_PTR(-EOPNOTSUPP);
+
     /* Support only LOCAL_WRITE flag for DMA MRs */
     if (acc & ~IB_ACCESS_LOCAL_WRITE) {
         dev_warn(&dev->pdev->dev, "unsupported dma mr access flags %#x\n", acc);
@@ -125,6 +130,7 @@ struct ib_mr *rocm_ernic_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
     union rocm_ernic_cmd_req req;
     union rocm_ernic_cmd_resp rsp;
     struct rocm_ernic_cmd_create_mr *cmd = &req.create_mr;
+    struct rocm_ernic_cmd_create_mr_v2 *cmd_v2 = &req.create_mr_v2;
     struct rocm_ernic_cmd_create_mr_resp *resp = &rsp.create_mr_resp;
     int ret, npages;
 
@@ -166,7 +172,7 @@ struct ib_mr *rocm_ernic_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
     if (ret)
         goto err_pdir;
 
-    memset(cmd, 0, sizeof(*cmd));
+    memset(&req, 0, sizeof(req));
     cmd->hdr.cmd = ROCM_ERNIC_CMD_CREATE_MR;
     cmd->start = start;
     cmd->length = length;
@@ -174,6 +180,8 @@ struct ib_mr *rocm_ernic_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
     cmd->access_flags = access_flags;
     cmd->nchunks = npages;
     cmd->pdir_dma = mr->pdir.dir_dma;
+    if (dev->dsr_version >= ROCM_ERNIC_MLNX_VERSION)
+        cmd_v2->iova = virt_addr;
 
     ret = rocm_ernic_cmd_post(dev, &req, &rsp, ROCM_ERNIC_CMD_CREATE_MR_RESP);
     if (ret < 0) {

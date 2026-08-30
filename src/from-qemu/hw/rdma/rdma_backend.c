@@ -1318,14 +1318,16 @@ int rdma_backend_get_gid_index(RdmaBackendDev *backend_dev, union ibv_gid *gid)
 }
 
 int rdma_backend_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                         union ibv_gid *gid)
+                         union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                         uint32_t vlan, uint32_t mtu)
 {
     RdmaCmMuxMsg msg = {};
     int ret;
 
     /* Call backend-specific add_gid if available */
     if (backend_dev->backend_ops && backend_dev->backend_ops->add_gid) {
-        ret = backend_dev->backend_ops->add_gid(backend_dev, ifname, gid);
+        ret = backend_dev->backend_ops->add_gid(backend_dev, ifname, gid,
+                                                gid_idx, gid_type, vlan, mtu);
         if (ret) {
             rdma_error_report("Backend add_gid failed (%d)", ret);
             return ret;
@@ -1491,7 +1493,9 @@ void rdma_backend_start(RdmaBackendDev *backend_dev)
 
 void rdma_backend_stop(RdmaBackendDev *backend_dev)
 {
-    mad_stop(backend_dev);
+    if (!backend_dev->identity) {
+        mad_stop(backend_dev);
+    }
     stop_backend_thread(&backend_dev->comp_thread);
 }
 

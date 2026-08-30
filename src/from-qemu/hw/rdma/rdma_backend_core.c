@@ -19,7 +19,7 @@
 extern const RdmaBackendOps rdma_backend_ops_none;
 extern const RdmaBackendOps rdma_backend_ops_loopback;
 extern const RdmaBackendOps rdma_backend_ops_tcp;
-/* extern const RdmaBackendOps rdma_backend_ops_verbs; */ /* TODO */
+extern const RdmaBackendOps rdma_backend_ops_mlnx;
 
 /**
  * Backend registry
@@ -30,7 +30,7 @@ extern const RdmaBackendOps rdma_backend_ops_tcp;
 static const RdmaBackendOps *backend_registry[RDMA_BACKEND_TYPE_MAX] = {
     [RDMA_BACKEND_TYPE_NONE] = &rdma_backend_ops_none,
     [RDMA_BACKEND_TYPE_LOOPBACK] = &rdma_backend_ops_loopback,
-    [RDMA_BACKEND_TYPE_VERBS] = NULL, /* TODO: &rdma_backend_ops_verbs */
+    [RDMA_BACKEND_TYPE_VERBS] = &rdma_backend_ops_mlnx,
     [RDMA_BACKEND_TYPE_TCP] = &rdma_backend_ops_tcp,
 };
 
@@ -57,7 +57,7 @@ const RdmaBackendOps *rdma_backend_get_ops(RdmaBackendType type)
 
 /**
  * rdma_backend_get_type_from_string - Parse backend type from string
- * @backend_str: String like "none", "loopback", "verbs:mlx5_0"
+ * @backend_str: String like "none", "loopback", or "mlnx:..."
  *
  * Returns: Backend type enum
  */
@@ -72,7 +72,8 @@ RdmaBackendType rdma_backend_get_type_from_string(const char *backend_str)
         return RDMA_BACKEND_TYPE_LOOPBACK;
     }
 
-    if (!strncmp(backend_str, "verbs:", 6) || !strcmp(backend_str, "verbs")) {
+    if (!strncmp(backend_str, "mlnx:", 5) || !strcmp(backend_str, "mlnx") ||
+        !strncmp(backend_str, "verbs:", 6) || !strcmp(backend_str, "verbs")) {
         return RDMA_BACKEND_TYPE_VERBS;
     }
 
@@ -98,7 +99,7 @@ const char *rdma_backend_type_to_string(RdmaBackendType type)
     case RDMA_BACKEND_TYPE_LOOPBACK:
         return "loopback";
     case RDMA_BACKEND_TYPE_VERBS:
-        return "verbs";
+        return "mlnx";
     case RDMA_BACKEND_TYPE_TCP:
         return "tcp";
     default:

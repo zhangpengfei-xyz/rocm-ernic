@@ -66,6 +66,9 @@ struct RdmaBackendOps {
                      uint32_t max_recv_sge);
     void (*destroy_qp)(RdmaBackendQP *qp, RdmaDeviceResources *dev_res);
     uint32_t (*qpn)(const RdmaBackendQP *qp);
+    int (*modify_qp)(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
+                     uint8_t qp_type, uint32_t attr_mask,
+                     const RdmaBackendQpAttr *attr);
 
     /* QP state transition operations */
     int (*qp_state_init)(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
@@ -93,7 +96,8 @@ struct RdmaBackendOps {
 
     /* GID management */
     int (*add_gid)(RdmaBackendDev *backend_dev, const char *ifname,
-                   union ibv_gid *gid);
+                   union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                   uint32_t vlan, uint32_t mtu);
     int (*del_gid)(RdmaBackendDev *backend_dev, const char *ifname,
                    int gid_idx);
     int (*get_backend_gid_index)(RdmaBackendDev *backend_dev, int sgid_idx);

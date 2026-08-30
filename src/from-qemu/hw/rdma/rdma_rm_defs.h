@@ -68,15 +68,27 @@ typedef struct RdmaRmCQ {
     CQNotificationType notify;
 } RdmaRmCQ;
 
+typedef struct GuestMemoryLease {
+    PCIDevice *pdev;
+    void *alias;
+    size_t alias_length;
+    void **page_mappings;
+    uint64_t *page_iovas;
+    uint32_t page_count;
+} GuestMemoryLease;
+
 /* MR (DMA region) */
 typedef struct RdmaRmMR {
     RdmaBackendMR backend_mr;
     void *virt;
     uint64_t start;
+    uint64_t iova;
     size_t length;
     uint32_t pd_handle;
     uint32_t lkey;
     uint32_t rkey;
+    int access_flags;
+    GuestMemoryLease *lease;
 } RdmaRmMR;
 
 typedef struct RdmaRmUC {
@@ -93,10 +105,13 @@ typedef struct RdmaRmQP {
     RdmaBackendQP backend_qp;
     void *opaque;
     uint32_t qp_type;
+    uint32_t handle;
     uint32_t qpn;
+    uint32_t pd_handle;
     uint32_t send_cq_handle;
     uint32_t recv_cq_handle;
     enum ibv_qp_state qp_state;
+    bool sq_sig_all;
     uint8_t is_srq;
     RdmaRmQPWqeProcessingState wqe_state; /* WQE processing state */
 } RdmaRmQP;
@@ -117,6 +132,7 @@ typedef struct RdmaRmSRQ {
 typedef struct RdmaRmGid {
     union ibv_gid gid;
     int backend_gid_index;
+    uint8_t gid_type;
 } RdmaRmGid;
 
 typedef struct RdmaRmPort {

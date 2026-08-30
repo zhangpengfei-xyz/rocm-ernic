@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #include <infiniband/driver.h>
 #include <infiniband/verbs.h>
@@ -24,7 +25,10 @@ static const struct verbs_match_ent match_table[] = {
     {},
 };
 
+static void rocm_ernic_free_context(struct ibv_context *ibctx);
+
 static const struct verbs_context_ops rocm_ernic_ctx_ops = {
+    .free_context = rocm_ernic_free_context,
     .query_device_ex = rocm_ernic_query_device,
     .query_port = rocm_ernic_query_port,
     .alloc_pd = rocm_ernic_alloc_pd,
@@ -68,6 +72,18 @@ static struct verbs_context *rocm_ernic_alloc_context(struct ibv_device *ibdev,
 
     ctx->qp_tab_size = resp.qp_tab_size;
     ctx->dv_abi_version = ROCM_ERNIC_DV_API_VERSION;
+    if (resp.uar_mmap_offset) {
+        long page_size = sysconf(_SC_PAGESIZE);
+
+        ctx->uar_ptr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+                            MAP_SHARED, cmd_fd, resp.uar_mmap_offset);
+        if (ctx->uar_ptr == MAP_FAILED) {
+            verbs_uninit_context(&ctx->vctx);
+            free(ctx);
+            return NULL;
+        }
+        ctx->uar_cq_offset = resp.uar_cq_offset;
+    }
 
     verbs_set_ops(&ctx->vctx, &rocm_ernic_ctx_ops);
     return &ctx->vctx;
@@ -77,6 +93,11 @@ static void rocm_ernic_free_context(struct ibv_context *ibctx)
 {
     struct rocm_ernic_context *ctx = to_rocm_ernic_ctx(ibctx);
 
+    if (ctx->uar_ptr) {
+        long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size > 0)
+            munmap(ctx->uar_ptr, page_size);
+    }
     verbs_uninit_context(&ctx->vctx);
     free(ctx);
 }

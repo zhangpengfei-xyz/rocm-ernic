@@ -219,6 +219,7 @@ struct rocm_ernic_dev {
     spinlock_t cmd_lock; /* Command lock. */
     struct semaphore cmd_sema;
     struct completion cmd_done;
+    u64 cmd_cookie;
     unsigned int nr_vectors;
 
     /* RDMA-related device information. */

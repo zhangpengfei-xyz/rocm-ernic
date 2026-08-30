@@ -1770,7 +1770,8 @@ static void loopback_post_recv(RdmaBackendDev *backend_dev, RdmaBackendQP *qp,
  */
 
 static int loopback_add_gid(RdmaBackendDev *backend_dev, const char *ifname,
-                            union ibv_gid *gid)
+                            union ibv_gid *gid, int gid_idx, uint8_t gid_type,
+                            uint32_t vlan, uint32_t mtu)
 {
     /* Always use deterministic GID format for loopback backend.
      * This ensures consistent GIDs regardless of network interface state. */
